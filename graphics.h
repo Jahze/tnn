@@ -1,0 +1,108 @@
+#pragma once
+
+#include <Windows.h>
+#include <gl/GL.h>
+#include <gl/GLU.h>
+#include <vector>
+#include "macros.h"
+
+class Scene;
+
+class OpenGLContext {
+public:
+  void Create(HWND hwnd) {
+    CHECK(!hwnd_);
+    hwnd_ = hwnd;
+    hdc_ = ::GetDC(hwnd);
+
+    CreatePixelFormat();
+
+    hglrc_ = ::wglCreateContext(hdc_);
+    wglMakeCurrent(hdc_, hglrc_);
+
+    ::RECT rect;
+    ::GetClientRect(hwnd, &rect);
+
+    InitialiseGL();
+  }
+
+  void Destroy() {
+    if (hglrc_) {
+      wglDeleteContext(hglrc_);
+      hglrc_ = nullptr;
+    }
+
+    if (hdc_) {
+      ::ReleaseDC(hwnd_, hdc_);
+      hdc_ = nullptr;
+      hwnd_ = nullptr;
+    }
+  }
+
+  void Resize();
+
+  void SwapBuffers() {
+    CHECK(hdc_);
+    ::SwapBuffers(hdc_);
+  }
+
+private:
+  void CreatePixelFormat() {
+    PIXELFORMATDESCRIPTOR pixelFormat;
+
+    pixelFormat.nSize = sizeof(PIXELFORMATDESCRIPTOR);
+    pixelFormat.nVersion = 1;
+    pixelFormat.dwFlags =
+      PFD_DRAW_TO_WINDOW |
+      PFD_SUPPORT_OPENGL |
+      PFD_DOUBLEBUFFER;
+    pixelFormat.dwLayerMask = PFD_MAIN_PLANE;
+    pixelFormat.iPixelType = PFD_TYPE_COLORINDEX;
+    pixelFormat.cColorBits = 8;
+    pixelFormat.cDepthBits = 16;
+    pixelFormat.cAccumBits = 0;
+    pixelFormat.cStencilBits = 0;
+
+    int format = ::ChoosePixelFormat(hdc_, &pixelFormat);
+    CHECK(format != 0);
+
+    ::BOOL result = ::SetPixelFormat(hdc_, format, &pixelFormat);
+    CHECK(result != FALSE);
+  }
+
+  void InitialiseGL() {
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    Resize();
+  }
+
+private:
+  ::HWND hwnd_ = nullptr;
+  ::HDC hdc_ = nullptr;
+  ::HGLRC hglrc_ = nullptr;
+};
+
+class ISceneObject {
+public:
+  virtual void Draw() const = 0;
+  virtual void Update(uint64_t ms) = 0;
+};
+
+class Scene {
+public:
+  void Render() const {
+    for (auto && object : objects_)
+      object->Draw();
+  }
+
+  void Update(uint64_t ms) {
+    for (auto && object : objects_)
+      object->Update(ms);
+  }
+
+  void AddObject(ISceneObject * object) {
+    objects_.push_back(object);
+  }
+
+private:
+  std::vector<ISceneObject*> objects_;
+};
