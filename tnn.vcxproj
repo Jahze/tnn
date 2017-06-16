@@ -123,6 +123,7 @@
     <ClCompile Include="neural_net.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="finders.h" />
     <ClInclude Include="macros.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="neural_net.h" />

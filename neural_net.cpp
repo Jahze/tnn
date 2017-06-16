@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <numeric>
 #include <random>
 #include "neural_net.h"
 
@@ -10,19 +12,29 @@ const double Generation::kMaxPeturbation = 0.3;
 std::vector<std::vector<double>> Generation::Evolve() {
   std::vector<std::vector<double>> nextGeneration;
 
+  std::sort(population_.begin(), population_.end());
+
   // TODO: keep elites
 
   const std::size_t size = population_.size();
 
+  auto AccumulateFitness =
+    [](double accum, const Genome & genome)
+    { return accum + genome.fitness_; };
+
+  double totalFitness = std::accumulate(
+    population_.begin(), population_.end(),
+    0.0, AccumulateFitness);
+
   // TODO: better selection
   std::random_device rd;
   std::mt19937 generator(rd());
-  std::uniform_int_distribution<> distribution(0, size-1);
+  std::uniform_int_distribution<std::size_t> distribution(0, size-1);
 
   while (nextGeneration.size() < size) {
     // TODO: mother and father can be the same
-    const auto & father = population_[distribution(generator)];
-    const auto & mother = population_[distribution(generator)];
+    const auto & father = SelectGenome(totalFitness);
+    const auto & mother = SelectGenome(totalFitness);
 
     auto children = Crossover(father, mother);
 
@@ -43,9 +55,10 @@ std::pair<std::vector<double>, std::vector<double>> Generation::Crossover(
     return std::make_pair(mother.weights_, father.weights_);
   }
 
-  int size = mother.weights_.size();
+  int size = static_cast<int>(mother.weights_.size());
   int crossoverPoint = RandomInt(0, size);
 
+  // TODO is this correct if cp == size?
   std::vector<double> firstborn;
   if (crossoverPoint > 0) {
     firstborn.insert(firstborn.end(),
@@ -60,12 +73,12 @@ std::pair<std::vector<double>, std::vector<double>> Generation::Crossover(
 
   std::vector<double> secondborn;
   if (crossoverPoint > 0) {
-    secondborn.insert(firstborn.end(),
+    secondborn.insert(secondborn.end(),
       father.weights_.begin(),
       father.weights_.begin() + crossoverPoint);
   }
   if (crossoverPoint < size) {
-    secondborn.insert(firstborn.end(),
+    secondborn.insert(secondborn.end(),
       mother.weights_.begin() + crossoverPoint,
       mother.weights_.end());
   }
@@ -80,4 +93,18 @@ void Generation::Mutate(std::vector<double> & genome) {
 
     gene += RandomDouble(-1.0, 1.0) * kMaxPeturbation;
   }
+}
+
+const Genome & Generation::SelectGenome(double totalFitness) {
+  double target = RandomDouble(0.0, totalFitness);
+  double accumulatedFitness = 0.0;
+
+  for (auto && genome : population_) {
+    accumulatedFitness += genome.fitness_;
+    if (accumulatedFitness > target)
+      return genome;
+  }
+
+  CHECK(false);
+  return population_.back();
 }

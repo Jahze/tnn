@@ -35,5 +35,8 @@
     <ClInclude Include="neural_net.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="finders.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

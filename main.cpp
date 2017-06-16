@@ -1,20 +1,18 @@
+#define NOMINMAX
+
 #include <Windows.h>
 #include <gl/GL.h>
 #include <gl/GLU.h>
 #include <chrono>
 #include <random>
 #include <string>
+#include "finders.h"
 #include "graphics.h"
 #include "neural_net.h"
 
 OpenGLContext glContext;
 
-float RandomFloat(float min, float max) {
-  static std::random_device rd;
-  static std::mt19937 generator(rd());
-  std::uniform_real_distribution<float> distribution(min, max);
-  return distribution(generator);
-}
+bool g_render = true;
 
 LONG WINAPI MainWndProc(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) {
   switch (umsg) {
@@ -39,8 +37,14 @@ LONG WINAPI MainWndProc(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) {
     PostQuitMessage(0);
     return 1;
 
+  case WM_KEYDOWN:
+    if (wparam == VK_RETURN) {
+      g_render = !g_render;
+    }
+    return 1;
+
   default:
-    return ::DefWindowProc(hwnd, umsg, wparam, lparam);
+    return static_cast<LONG>(::DefWindowProc(hwnd, umsg, wparam, lparam));
   }
 
   return 0;
@@ -68,97 +72,38 @@ void Render(const Scene & scene) {
   glContext.SwapBuffers();
 }
 
-class SimpleObject : public ISceneObject {
-public:
-  SimpleObject(float x, float y) {
-    position_[0] = x;
-    position_[1] = y;
+const std::size_t kFramerate = 60u;
+const std::size_t kMsPerFrame = 1000u / kFramerate;
+const std::size_t kMsPerGeneration = 1000u * 5u;
+const std::size_t kGoals = 3u;
+
+Scene * PreEvolve(std::size_t num,
+                  Scene * scene,
+                  Population & population,
+                  std::size_t & generation) {
+
+  for (std::size_t gen = 0; gen < num; ++gen) {
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (std::size_t goal = 0; goal < kGoals; ++goal) {
+      const uint64_t extraTicks = (kMsPerGeneration * 10) / kMsPerFrame;
+      for (uint64_t i = 0; i < extraTicks; ++i)
+        scene->Update(kMsPerFrame);
+
+      population.CreateNewGoal();
+    }
+
+    scene = population.Evolve();
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed = end - start;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed);
+
+    std::cout << "Generation " << ++generation << " [" << ms.count() << "ms]\n";
   }
 
-  void SetSize(float size) { size_ = size; }
-
-  void Draw() const override {
-    glBegin(GL_QUADS);
-
-      glColor3fv(colour_);
-      glVertex2f(position_[0] - size_, position_[1] - size_);
-      glVertex2f(position_[0] + size_, position_[1] - size_);
-      glVertex2f(position_[0] + size_, position_[1] + size_);
-      glVertex2f(position_[0] - size_, position_[1] + size_);
-
-    glEnd();
-  }
-
-  void Update(uint64_t ms) override {
-  }
-
-protected:
-  float colour_[3] = { 1.0f, 1.0f, 1.0f };
-  float position_[2];
-  float size_ = 0.05f;
-
-  
-};
-
-class SmartObject : public SimpleObject {
-public:
-  SmartObject(float x, float y, float goalx, float goaly)
-    : SimpleObject(x, y) {
-    goal_[0] = goalx;
-    goal_[1] = goaly;
-  }
-
-  void Update(uint64_t ms) override {
-    static const float kSpeed = 0.01f;
-
-    //float xSpeed = RandomFloat(-1.0f, 1.0f) * kSpeed;
-    //float ySpeed = RandomFloat(-1.0f, 1.0f) * kSpeed;
-
-    std::vector<double> inputs{position_[0], position_[1], goal_[0], goal_[1]};
-    auto outputs = brain_.Process(inputs);
-
-    //const float xSpeed = (static_cast<float>(outputs[0]) +
-    //  (-1.f * static_cast<float>(outputs[1]))) * kSpeed *
-    //  static_cast<float>(outputs[2]);
-    //const float ySpeed = (static_cast<float>(outputs[3]) +
-    //  (-1.f * static_cast<float>(outputs[4]))) * kSpeed *
-    //  static_cast<float>(outputs[5]);
-
-    //const float xSpeed = (static_cast<float>(outputs[0]) +
-    //  (-1.f * static_cast<float>(outputs[1]))) * kSpeed;
-    //const float ySpeed = (static_cast<float>(outputs[3]) +
-    //  (-1.f * static_cast<float>(outputs[4]))) * kSpeed;
-
-    float xSpeed = outputs[0] > outputs[1] ? kSpeed : -kSpeed;
-    float ySpeed = outputs[2] > outputs[3] ? kSpeed : -kSpeed;
-
-    xSpeed *= static_cast<float>(outputs[4]);
-    ySpeed *= static_cast<float>(outputs[5]);
-
-    if (position_[0] + xSpeed - size_ < -1.0f)
-      return;
-
-    if (position_[1] + ySpeed - size_ < -1.0f)
-      return;
-
-    if (position_[0] + xSpeed + size_ > 1.0f)
-      return;
-
-    if (position_[1] + ySpeed + size_ > 1.0f)
-      return;
-
-    position_[0] += xSpeed;
-    position_[1] += ySpeed;
-  }
-
-private:
-  float goal_[2];
-
-  const static std::size_t brainInputs = 4;
-  const static std::size_t brainOutputs = 6;
-
-  NeuralNet brain_{ brainInputs, brainOutputs, 1, 16 };
-};
+  return scene;
+}
 
 int main() {
   static const char WindowClassName[] = "tnn window class";
@@ -189,21 +134,13 @@ int main() {
     return FALSE;
   }
 
-  const std::size_t kPopulationSize = 20u;
-  const std::size_t kFramerate = 60u;
-  const std::size_t kMsPerFrame = 1000u / kFramerate;
+  std::size_t generation = 0;
+  std::cout << "Generation " << generation << "\n";
 
-  Scene scene;
-  const float goalX = RandomFloat(0.1f, 0.9f);
-  const float goalY = RandomFloat(0.1f, 0.9f);
-  SimpleObject goal(goalX, goalY);
-  goal.SetSize(0.01f);
-  scene.AddObject(&goal);
-  std::vector<std::unique_ptr<SmartObject>> objects;
-  for (std::size_t i = 0; i < kPopulationSize; ++i) {
-    objects.emplace_back(new SmartObject(0.0f, 0.0f, goalX, goalY));
-    scene.AddObject(objects.back().get());
-  }
+  Population population;
+  Scene * scene = population.GenerateInitialPopulation();
+
+  scene = PreEvolve(0, scene, population, generation);
 
   ::ShowWindow(hwnd, SW_SHOWNORMAL);
   ::UpdateWindow(hwnd);
@@ -211,6 +148,8 @@ int main() {
   ::MSG msg;
 
   auto lastTick = std::chrono::high_resolution_clock::now();
+  std::chrono::milliseconds thisSpawn(0u);
+  std::size_t lastGoal = 0u;
 
   while (true) {
     while (::PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE) == TRUE) {
@@ -223,16 +162,59 @@ int main() {
       }
     }
 
-    Render(scene);
+    if (g_render) {
+      double fitness = 0.0;
+      SmartObject * best = nullptr;
+      for (auto && object : population) {
+        double f = object->CalculateFitness();
+        if (f > fitness) {
+          best = object.get();
+          fitness = f;
+        }
+      }
 
-    auto nextTick = std::chrono::high_resolution_clock::now();
-    auto elapsed = nextTick - lastTick;
+      best->SetColour(1.0, 0.0, 0.0);
+
+      Render(*scene);
+
+      best->SetColour(1.0, 1.0, 1.0);
+    }
+
+    auto now = std::chrono::high_resolution_clock::now();
+    auto elapsed = now - lastTick;
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed);
 
+    if (!g_render) ms = std::chrono::milliseconds(kMsPerFrame+1);
+
     if (ms.count() > kMsPerFrame) {
-      scene.Update(ms.count());
+      scene->Update(ms.count());
 
       lastTick = std::chrono::high_resolution_clock::now();
     }
+
+    thisSpawn += ms;
+
+    if (thisSpawn.count() > kMsPerGeneration) {
+      // Run it for longer than shown to get to the end
+      const uint64_t extraTicks = (kMsPerGeneration * 10) / kMsPerFrame;
+      for (uint64_t i = 0; i < extraTicks; ++i)
+        scene->Update(kMsPerFrame);
+
+      if (++lastGoal < kGoals) {
+        population.CreateNewGoal();
+        lastTick = std::chrono::high_resolution_clock::now();
+      }
+      else {
+        scene = population.Evolve();
+
+        std::cout << "Generation " << ++generation << "\n";
+
+        lastGoal = 0u;
+      }
+
+      thisSpawn = std::chrono::milliseconds(0u);
+      lastTick = std::chrono::high_resolution_clock::now();
+    }
+
   }
 }

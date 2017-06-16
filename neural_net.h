@@ -52,8 +52,11 @@ public:
     CHECK(inputs.size() == inputs_);
 
     std::vector<double> lastOutputs = inputs;
+    lastOutputs.reserve(64);
 
     std::vector<double> outputs;
+    outputs.reserve(64);
+
     for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
       outputs.clear();
 
@@ -61,7 +64,7 @@ public:
         std::size_t inputIndex = 0;
         double activation = 0.0;
 
-        const std::size_t inputs =  layers_[i].neurones_[j].size_;
+        const std::size_t inputs = layers_[i].neurones_[j].size_;
         const auto & neurones = layers_[i].neurones_[j];
 
         for (std::size_t k = 0, length = inputs; k < length; ++k)
@@ -70,14 +73,13 @@ public:
         activation += neurones.weights_[inputs] * kThresholdBias;
 
         outputs.push_back(ActivationFunction(activation, kActivationResponse));
-
-        inputIndex = 0;
       }
 
-      lastOutputs = outputs;
+      lastOutputs = std::move(outputs);
+      outputs.reserve(64);
     }
 
-    return outputs;
+    return lastOutputs;
   }
 
   std::vector<double> GetWeights() const {
@@ -85,8 +87,8 @@ public:
 
     for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
       for (std::size_t j = 0; j < layers_[i].size_; ++j) {
-        const std::size_t inputs = layers_[i].neurones_[j].size_;
         const auto & neurones = layers_[i].neurones_[j];
+        const std::size_t inputs = neurones.size_;
 
         for (std::size_t k = 0, length = inputs; k < length; ++k)
           outputs.push_back(neurones.weights_[k]);
@@ -96,6 +98,24 @@ public:
     }
 
     return outputs;
+  }
+
+  void SetWeights(const std::vector<double> & weights) const {
+    auto cursor = weights.begin();
+
+    for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
+      for (std::size_t j = 0; j < layers_[i].size_; ++j) {
+        const auto & neurones = layers_[i].neurones_[j];
+        const std::size_t inputs = neurones.size_;
+
+        for (std::size_t k = 0, length = inputs; k < length; ++k)
+          neurones.weights_[k] = *cursor++;
+
+        neurones.weights_[inputs] = *cursor++;
+      }
+    }
+
+    CHECK(cursor == weights.end());
   }
 
   double ActivationFunction(double activation, double response) const {
@@ -169,6 +189,8 @@ private:
     std::uniform_int_distribution<> distribution(min, max);
     return distribution(rng_);
   }
+
+  const Genome & SelectGenome(double totalFitness);
 
 private:
   std::vector<Genome> population_;

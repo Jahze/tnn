@@ -1,8 +1,14 @@
 #pragma once
 
+#define NOMINMAX
+
 #include <Windows.h>
 #include <gl/GL.h>
 #include <gl/GLU.h>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <vector>
 #include "macros.h"
 
@@ -87,6 +93,62 @@ public:
   virtual void Update(uint64_t ms) = 0;
 };
 
+class WorkerThread {
+public:
+  WorkerThread()
+  {
+    thread_ = std::thread(&WorkerThread::Work, this);
+  }
+  ~WorkerThread() { running_ = false; }
+
+  void DoJob(std::function<void(void)> job) {
+    CHECK(!job_);
+    std::unique_lock<std::mutex> lock(lock_);
+    job_ = std::make_unique<std::function<void(void)>>(job);
+    jobDone_ = false;
+    jobWaiting_.notify_one();
+  }
+
+  void Wait() {
+    std::unique_lock<std::mutex> lock(lock_);
+    while (!jobDone_)
+      jobWaiting_.wait(lock);
+  }
+
+private:
+  void Work() {
+    while (running_) {
+      std::function<void(void)> job;
+
+      {
+        std::unique_lock<std::mutex> lock(lock_);
+
+        while (!job_)
+          jobWaiting_.wait(lock);
+
+        job = *job_;
+        job_.release();
+      }
+
+      job();
+
+      {
+        std::unique_lock<std::mutex> lock(lock_);
+        jobWaiting_.notify_one();
+        jobDone_ = true;
+      }
+    }
+  }
+
+private:
+  std::mutex lock_;
+  std::thread thread_;
+  bool running_ = true;
+  bool jobDone_ = false;
+  std::condition_variable jobWaiting_;
+  std::unique_ptr<std::function<void(void)>> job_;
+};
+
 class Scene {
 public:
   void Render() const {
@@ -95,12 +157,51 @@ public:
   }
 
   void Update(uint64_t ms) {
-    for (auto && object : objects_)
-      object->Update(ms);
+    //for (auto && object : objects_)
+    //  object->Update(ms);
+
+    //const std::size_t size = objects_.size();
+    //std::thread thread(&Scene::UpdatePortion,
+    //  this, ms, 0, size / 2);
+
+    //for (std::size_t i = size / 2; i < size; ++i)
+    //  objects_[i]->Update(ms);
+
+    //thread.join();
+
+    static WorkerThread thread[3]; // TODO: gulp
+
+    const std::size_t size = objects_.size();
+
+    thread[0].DoJob(std::bind(&Scene::UpdatePortion,
+      this, ms, 0, size / 4));
+
+    thread[1].DoJob(std::bind(&Scene::UpdatePortion,
+      this, ms, size / 4, size / 2));
+
+    thread[2].DoJob(std::bind(&Scene::UpdatePortion,
+      this, ms, size / 2, size / 2 + size / 4));
+
+    for (std::size_t i = size / 2 + size / 4; i < size; ++i)
+      objects_[i]->Update(ms);
+
+    thread[0].Wait();
+    thread[1].Wait();
+    thread[2].Wait();
   }
 
   void AddObject(ISceneObject * object) {
     objects_.push_back(object);
+  }
+
+  void RemoveObject(ISceneObject * object) {
+    objects_.erase(std::find(objects_.begin(), objects_.end(), object));
+  }
+
+private:
+  void UpdatePortion(uint64_t ms, std::size_t first, std::size_t last) {
+    for (std::size_t i = first; i < last; ++i)
+      objects_[i]->Update(ms);
   }
 
 private:
