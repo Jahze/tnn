@@ -95,11 +95,17 @@ public:
 
 class WorkerThread {
 public:
-  WorkerThread()
-  {
+  WorkerThread() {
     thread_ = std::thread(&WorkerThread::Work, this);
   }
-  ~WorkerThread() { running_ = false; }
+  ~WorkerThread() {
+    {
+      std::unique_lock<std::mutex> lock(lock_);
+      running_ = false;
+      jobWaiting_.notify_one();
+    }
+    thread_.join();
+  }
 
   void DoJob(std::function<void(void)> job) {
     CHECK(!job_);
@@ -123,8 +129,11 @@ private:
       {
         std::unique_lock<std::mutex> lock(lock_);
 
-        while (!job_)
+        while (running_ && !job_)
           jobWaiting_.wait(lock);
+
+        if (!running_)
+          return;
 
         job = *job_;
         job_.release();

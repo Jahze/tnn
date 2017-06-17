@@ -188,11 +188,11 @@ int main() {
 
     if (ms.count() > kMsPerFrame) {
       scene->Update(ms.count());
+      thisSpawn += ms;
 
       lastTick = std::chrono::high_resolution_clock::now();
     }
 
-    thisSpawn += ms;
 
     if (thisSpawn.count() > kMsPerGeneration) {
       // Run it for longer than shown to get to the end
