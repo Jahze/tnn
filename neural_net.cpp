@@ -36,7 +36,8 @@ std::vector<std::vector<double>> Generation::Evolve() {
     const auto & father = SelectGenome(totalFitness);
     const auto & mother = SelectGenome(totalFitness);
 
-    auto children = Crossover(father, mother);
+    //auto children = Crossover(father, mother);
+    auto children = UniformCrossover(father, mother);
 
     Mutate(children.first);
     Mutate(children.second);
@@ -81,6 +82,29 @@ std::pair<std::vector<double>, std::vector<double>> Generation::Crossover(
     secondborn.insert(secondborn.end(),
       mother.weights_.begin() + crossoverPoint,
       mother.weights_.end());
+  }
+
+  return { firstborn, secondborn };
+}
+
+std::pair<std::vector<double>, std::vector<double>>
+  Generation::UniformCrossover(
+  const Genome & mother,
+  const Genome & father) {
+  if (RandomFloat() > kCrossoverRate) {
+    return std::make_pair(mother.weights_, father.weights_);
+  }
+
+  std::vector<double> firstborn, secondborn;
+  for (std::size_t i = 0u, length = mother.weights_.size(); i < length; ++i) {
+    if (RandomFloat() < 0.5f) {
+      firstborn.push_back(mother.weights_[i]);
+      secondborn.push_back(father.weights_[i]);
+    }
+    else {
+      firstborn.push_back(father.weights_[i]);
+      secondborn.push_back(mother.weights_[i]);
+    }
   }
 
   return { firstborn, secondborn };

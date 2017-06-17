@@ -160,9 +160,13 @@ private:
 
 class Scene {
 public:
-  void Render() const {
+  void Render(OpenGLContext & context) const {
+    glClear(GL_COLOR_BUFFER_BIT);
+
     for (auto && object : objects_)
       object->Draw();
+
+    context.SwapBuffers();
   }
 
   void Update(uint64_t ms) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <random>
@@ -173,6 +174,10 @@ private:
     const Genome & mother,
     const Genome & father);
 
+  std::pair<std::vector<double>, std::vector<double>> UniformCrossover(
+    const Genome & mother,
+    const Genome & father);
+
   void Mutate(std::vector<double> & genome);
 
   float RandomFloat() {
@@ -198,3 +203,53 @@ private:
   std::mt19937 rng_;
 };
 
+class Population {
+public:
+  Population(std::size_t msPerFrame, std::size_t msPerGenerationRender)
+    : msPerFrame_(msPerFrame), msPerGenerationRender_(msPerGenerationRender) {}
+
+  void Start() {
+    lastTick_ = std::chrono::high_resolution_clock::now();
+    timeSinceSpawn_ = std::chrono::milliseconds(0u);
+
+    StartImpl();
+  }
+
+  void Update(bool render) {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto elapsed = now - lastTick_;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed);
+
+    if (!render) ms = std::chrono::milliseconds(msPerFrame_ + 1);
+
+    if (ms.count() > msPerFrame_) {
+      UpdateImpl(render, ms.count());
+      timeSinceSpawn_ += ms;
+
+      lastTick_ = std::chrono::high_resolution_clock::now();
+    }
+
+    if (timeSinceSpawn_.count() > msPerGenerationRender_) {
+      // Run it for longer than shown to get to the end
+      const uint64_t extraTicks = (msPerGenerationRender_ * 10) / msPerFrame_;
+      for (uint64_t i = 0; i < extraTicks; ++i)
+        UpdateImpl(false, msPerFrame_);
+
+      Evolve();
+
+      timeSinceSpawn_ = std::chrono::milliseconds(0u);
+      lastTick_ = std::chrono::high_resolution_clock::now();
+    }
+  }
+
+protected:
+  virtual void StartImpl() = 0;
+  virtual void UpdateImpl(bool render, std::size_t ms) = 0;
+  virtual void Evolve() = 0;
+
+private:
+  std::chrono::time_point<std::chrono::steady_clock> lastTick_;
+  std::chrono::milliseconds timeSinceSpawn_;
+  std::size_t msPerFrame_;
+  std::size_t msPerGenerationRender_;
+};

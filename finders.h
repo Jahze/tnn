@@ -48,7 +48,7 @@ public:
   }
 
   void Update(uint64_t ms) override {
-    static const double kSpeed = 0.02;
+    static const double kSpeed = 0.01;
 
     std::vector<double> inputs{ position_[0], position_[1], goal_[0], goal_[1] };
     auto outputs = brain_.Process(inputs);
@@ -92,11 +92,16 @@ private:
   NeuralNet brain_{ brainInputs, brainOutputs, 1, 16 };
 };
 
-class Population {
+class FinderPopulation : public Population {
 public:
-  Population() : rng_(random_()) {}
+  FinderPopulation(std::size_t msPerFrame,
+                   std::size_t msPerGenerationRender,
+                   OpenGLContext & context,
+                   std::size_t goals)
+    : Population(msPerFrame, msPerGenerationRender)
+    , context_(context), rng_(random_()), goals_(goals) {}
 
-  Scene * GenerateInitialPopulation() {
+  void GenerateInitialPopulation() {
     auto goal = CreateSceneAndGoal();
 
     objects_.clear();
@@ -104,11 +109,61 @@ public:
       objects_.emplace_back(new SmartObject(0.0, 0.0, goal.first, goal.second));
       scene_->AddObject(objects_.back().get());
     }
-
-    return scene_.get();
   }
 
-  Scene * Evolve() {
+  void CreateNewGoal() {
+    scene_->RemoveObject(goal_.get());
+
+    auto goal = CreateGoal();
+
+    for (auto && object : objects_)
+      object->SetGoal(goal.first, goal.second);
+  }
+
+protected:
+  void StartImpl() {
+    generation_ = 0;
+    currentGoal_ = 0;
+
+    GenerateInitialPopulation();
+  }
+
+  void UpdateImpl(bool render, std::size_t ms) {
+    scene_->Update(ms);
+
+    if (render) {
+      double fitness = 0.0;
+      SmartObject * best = nullptr;
+      for (auto && object : objects_) {
+        double f = object->CalculateFitness();
+        if (f > fitness) {
+          best = object.get();
+          fitness = f;
+        }
+      }
+
+      best->SetColour(1.0, 0.0, 0.0);
+
+      scene_->Render(context_);
+
+      best->SetColour(1.0, 1.0, 1.0);
+    }
+  }
+
+  void Evolve() {
+    if (++currentGoal_ < goals_) {
+      CreateNewGoal();
+    }
+    else {
+      DoEvolve();
+
+      std::cout << "Generation " << ++generation_ << "\n";
+
+      currentGoal_ = 0u;
+    }
+  }
+
+  void DoEvolve() {
     std::vector<Genome> genomes;
     for (auto && object : objects_)
       genomes.push_back(object->GetGenome());
@@ -129,25 +184,7 @@ public:
     }
 
     CHECK(cursor == nextGeneration.end());
-
-    return scene_.get();
   }
-
-  void CreateNewGoal() {
-    scene_->RemoveObject(goal_.get());
-
-    auto goal = CreateGoal();
-
-    for (auto && object : objects_)
-      object->SetGoal(goal.first, goal.second);
-  }
-
-  std::vector<std::unique_ptr<SmartObject>>::iterator begin()
-    { return objects_.begin(); }
-
-  std::vector<std::unique_ptr<SmartObject>>::iterator end()
-    { return objects_.end(); }
-
 
 private:
   const std::size_t kPopulationSize = 50u;
@@ -176,9 +213,13 @@ private:
   }
 
 private:
+  OpenGLContext & context_;
   std::unique_ptr<Scene> scene_;
   std::unique_ptr<SimpleObject> goal_;
   std::vector<std::unique_ptr<SmartObject>> objects_;
   std::random_device random_;
   std::mt19937 rng_;
+  const std::size_t goals_;
+  std::size_t currentGoal_;
+  std::size_t generation_;
 };
