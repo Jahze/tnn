@@ -53,33 +53,11 @@ public:
     std::vector<double> inputs{ position_[0], position_[1], goal_[0], goal_[1] };
     auto outputs = brain_.Process(inputs);
 
-    //const float xSpeed = (static_cast<float>(outputs[0]) +
-    //  (-1.f * static_cast<float>(outputs[1]))) * kSpeed *
-    //  static_cast<float>(outputs[2]);
-    //const float ySpeed = (static_cast<float>(outputs[3]) +
-    //  (-1.f * static_cast<float>(outputs[4]))) * kSpeed *
-    //  static_cast<float>(outputs[5]);
-
     double xSpeed = outputs[0] + (-1.f * outputs[1]);
     double ySpeed = outputs[2] + (-1.f * outputs[3]);
 
-    //double xSpeed = outputs[0] > outputs[1] ? kSpeed : -kSpeed;
-    //double ySpeed = outputs[2] > outputs[3] ? kSpeed : -kSpeed;
-
     xSpeed *= outputs[4] * kSpeed * ms;
     ySpeed *= outputs[5] * kSpeed * ms;
-
-    //if (position_[0] + xSpeed - size_ < -1.0)
-    //  return;
-
-    //if (position_[1] + ySpeed - size_ < -1.0)
-    //  return;
-
-    //if (position_[0] + xSpeed + size_ > 1.0)
-    //  return;
-
-    //if (position_[1] + ySpeed + size_ > 1.0)
-    //  return;
 
     position_[0] += xSpeed;
     position_[1] += ySpeed;
