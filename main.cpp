@@ -6,6 +6,7 @@
 #include <chrono>
 #include <random>
 #include <string>
+#include "chasers.h"
 #include "finders.h"
 #include "graphics.h"
 #include "neural_net.h"
@@ -100,11 +101,16 @@ int main() {
 
   std::cout << "Generation 0\n";
 
-  FinderPopulation population(
+  //finders::Population population(
+  //  kMsPerFrame,
+  //  kMsPerGeneration,
+  //  glContext,
+  //  kGoals);
+
+  chasers::Population population(
     kMsPerFrame,
-    kMsPerGeneration,
-    glContext,
-    kGoals);
+    kMsPerGeneration * 5,
+    glContext);
 
   ::ShowWindow(hwnd, SW_SHOWNORMAL);
   ::UpdateWindow(hwnd);

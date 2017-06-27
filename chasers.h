@@ -5,7 +5,7 @@
 #include "graphics.h"
 #include "neural_net.h"
 
-namespace finders {
+namespace chasers {
 
 class SimpleObject : public ISceneObject {
 public:
@@ -35,10 +35,64 @@ public:
   void Update(uint64_t ms) override {
   }
 
+  double GetX() const { return position_[0]; }
+  double GetY() const { return position_[1]; }
+
 protected:
   double colour_[3] = { 1.0, 1.0, 1.0 };
   double position_[2];
   double size_ = 0.02;
+};
+
+class GoalObject : public SimpleObject {
+public:
+  GoalObject(std::mt19937 & rng, double x, double y)
+    : SimpleObject(x, y), rng_(rng) {
+    ChangeSpeed();
+  }
+
+  void Update(uint64_t ms) override {
+    static const double kSpeed = 0.005;
+    static const double kChangeChance = 0.02;
+
+    if (changeDistribution_(rng_) < kChangeChance)
+      ChangeSpeed();
+
+    position_[0] += speed_[0] * kSpeed;
+    position_[1] += speed_[1] * kSpeed;
+
+    if (position_[0] > 1.0) {
+      position_[0] = 1.0;
+      if (speed_[0] > 0.0) speed_[0] = -speed_[0];
+    }
+
+    if (position_[0] < -1.0) {
+      position_[0] = -1.0;
+      if (speed_[0] < 0.0) speed_[0] = -speed_[0];
+    }
+
+    if (position_[1] > 1.0) {
+      position_[1] = 1.0;
+      if (speed_[1] > 0.0) speed_[1] = -speed_[1];
+    }
+
+    if (position_[1] < -1.0) {
+      position_[1] = -1.0;
+      if (speed_[1] < 0.0) speed_[1] = -speed_[1];
+    }
+  }
+
+private:
+  void ChangeSpeed() {
+    speed_[0] = speedDistribution_(rng_);
+    speed_[1] = speedDistribution_(rng_);
+  }
+
+private:
+  std::mt19937 & rng_;
+  std::uniform_real_distribution<> speedDistribution_{-1.0, 1.0};
+  std::uniform_real_distribution<> changeDistribution_{0.0, 1.0};
+  double speed_[2];
 };
 
 class SmartObject : public SimpleObject {
@@ -65,28 +119,29 @@ public:
     position_[1] += ySpeed;
   }
 
-  double CalculateFitness() const {
+  double CalculateDistance() const {
     const double x = position_[0] - goal_[0];
     const double y = position_[1] - goal_[1];
-    return accumulatedFitness_ + 1.0 / std::sqrt(x*x + y*y);
+    return std::sqrt(x*x + y*y);
   }
 
-  Genome GetGenome() const {
-    return { brain_.GetWeights(), CalculateFitness() };
+  //void AccumulateDistance() { accumulatedDistance_ += CalculateDistance(); }
+  //double GetAccumulatedDistance() const { return accumulatedDistance_; }
+
+  Genome GetGenome(double maxDistance) const {
+    //return { brain_.GetWeights(), maxDistance + 1.0 - accumulatedDistance_ };
+    return{ brain_.GetWeights(), maxDistance + 1.0 - CalculateDistance() };
   }
 
   void SetWeights(const std::vector<double> & weights) {
     brain_.SetWeights(weights);
   }
 
-  void SetGoal(double x, double y) {
-    goal_[0] = x; goal_[1] = y;
-    accumulatedFitness_ = CalculateFitness();
-  }
+  void SetGoal(double x, double y) { goal_[0] = x; goal_[1] = y; }
 
 private:
   double goal_[2];
-  double accumulatedFitness_ = 0.0;
+  double accumulatedDistance_ = 0.0;
 
   const static std::size_t brainInputs = 4;
   const static std::size_t brainOutputs = 6;
@@ -98,10 +153,9 @@ class Population : public ::Population {
 public:
   Population(std::size_t msPerFrame,
              std::size_t msPerGenerationRender,
-             OpenGLContext & context,
-             std::size_t goals)
+             OpenGLContext & context)
     : ::Population(msPerFrame, msPerGenerationRender)
-    , context_(context), rng_(random_()), goals_(goals) {}
+    , context_(context), rng_(random_()) {}
 
   void GenerateInitialPopulation() {
     auto goal = CreateSceneAndGoal();
@@ -113,34 +167,29 @@ public:
     }
   }
 
-  void CreateNewGoal() {
-    scene_->RemoveObject(goal_.get());
-
-    auto goal = CreateGoal();
-
-    for (auto && object : objects_)
-      object->SetGoal(goal.first, goal.second);
-  }
-
 protected:
   void StartImpl() {
     generation_ = 0;
-    currentGoal_ = 0;
 
     GenerateInitialPopulation();
   }
 
   void UpdateImpl(bool render, std::size_t ms) {
+    for (auto && object : objects_) {
+      object->SetGoal(goal_->GetX(), goal_->GetY());
+      //object->AccumulateDistance();
+    }
+
     scene_->Update(ms);
 
     if (render) {
-      double fitness = 0.0;
+      double minDistance = std::numeric_limits<double>::max();
       SmartObject * best = nullptr;
       for (auto && object : objects_) {
-        double f = object->CalculateFitness();
-        if (f > fitness) {
+        double d = object->CalculateDistance();
+        if (d < minDistance) {
           best = object.get();
-          fitness = f;
+          minDistance = d;
         }
       }
 
@@ -153,22 +202,22 @@ protected:
   }
 
   void Evolve() {
-    if (++currentGoal_ < goals_) {
-      CreateNewGoal();
-    }
-    else {
-      DoEvolve();
+    DoEvolve();
 
-      std::cout << "Generation " << ++generation_ << "\n";
-
-      currentGoal_ = 0u;
-    }
+    std::cout << "Generation " << ++generation_ << "\n";
   }
 
   void DoEvolve() {
+    double maxDistance = 0.0;
+    for (auto && object : objects_) {
+      //double d = object->GetAccumulatedDistance();
+      double d = object->CalculateDistance();
+      if (d > maxDistance) maxDistance = d;
+    }
+
     std::vector<Genome> genomes;
     for (auto && object : objects_)
-      genomes.push_back(object->GetGenome());
+      genomes.push_back(object->GetGenome(maxDistance));
 
     Generation generation(genomes);
 
@@ -195,7 +244,7 @@ private:
     const double goalX = RandomFloat(-0.9, 0.9);
     const double goalY = RandomFloat(-0.9, 0.9);
 
-    goal_.reset(new SimpleObject(goalX, goalY));
+    goal_.reset(new GoalObject(rng_, goalX, goalY));
     goal_->SetSize(0.01);
     goal_->SetColour(0.0, 1.0, 1.0);
     scene_->AddObject(goal_.get());
@@ -217,12 +266,10 @@ private:
 private:
   OpenGLContext & context_;
   std::unique_ptr<Scene> scene_;
-  std::unique_ptr<SimpleObject> goal_;
+  std::unique_ptr<GoalObject> goal_;
   std::vector<std::unique_ptr<SmartObject>> objects_;
   std::random_device random_;
   std::mt19937 rng_;
-  const std::size_t goals_;
-  std::size_t currentGoal_;
   std::size_t generation_;
 };
 
