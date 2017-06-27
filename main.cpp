@@ -10,6 +10,7 @@
 #include "finders.h"
 #include "graphics.h"
 #include "neural_net.h"
+#include "threadpool.h"
 
 OpenGLContext glContext;
 
@@ -67,7 +68,7 @@ LONG WINAPI MainWndProc(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam) {
 
 const std::size_t kFramerate = 60u;
 const std::size_t kMsPerFrame = 1000u / kFramerate;
-const std::size_t kMsPerGeneration = 1000u * 5u;
+const std::size_t kMsPerGeneration = 1000u * 2u;
 const std::size_t kGoals = 3u;
 
 int main() {
@@ -101,16 +102,16 @@ int main() {
 
   std::cout << "Generation 0\n";
 
-  //finders::Population population(
-  //  kMsPerFrame,
-  //  kMsPerGeneration,
-  //  glContext,
-  //  kGoals);
-
-  chasers::Population population(
+  finders::Population population(
     kMsPerFrame,
-    kMsPerGeneration * 5,
-    glContext);
+    kMsPerGeneration,
+    glContext,
+    kGoals);
+
+  //chasers::Population population(
+  //  kMsPerFrame,
+  //  kMsPerGeneration * 5,
+  //  glContext);
 
   ::ShowWindow(hwnd, SW_SHOWNORMAL);
   ::UpdateWindow(hwnd);
