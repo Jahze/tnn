@@ -2,16 +2,59 @@
 
 #include <chrono>
 #include <cstdint>
+#include <immintrin.h>
 #include <memory>
 #include <random>
 #include <vector>
 #include "macros.h"
 
+template<typename T>
+class Aligned32ByteRAIIStorage {
+public:
+  Aligned32ByteRAIIStorage() : storage_(nullptr) {}
+
+  Aligned32ByteRAIIStorage(std::size_t size) {
+    size += (32 - ((size * sizeof(T)) % 32)) / sizeof(T);
+    storage_ = new double [size];
+  }
+
+  ~Aligned32ByteRAIIStorage() { delete [] storage_; }
+
+  Aligned32ByteRAIIStorage(const Aligned32ByteRAIIStorage<T> &) = delete;
+  Aligned32ByteRAIIStorage& operator=(
+    const Aligned32ByteRAIIStorage<T> &) = delete;
+
+  Aligned32ByteRAIIStorage(Aligned32ByteRAIIStorage && rhs) {
+    storage_ = rhs.storage_;
+    rhs.storage_ = nullptr;
+  }
+
+  Aligned32ByteRAIIStorage& operator=(Aligned32ByteRAIIStorage && rhs) {
+    storage_ = rhs.storage_;
+    rhs.storage_ = nullptr;
+  }
+
+  T & operator[](std::size_t i) { return storage_[i]; }
+  T operator[](std::size_t i) const { return storage_[i]; }
+  T * Get() { return storage_; }
+  const T * Get() const { return storage_; }
+
+  void Reset(std::size_t size) {
+    delete [] storage_;
+
+    size += (32 - ((size * sizeof(T)) % 32)) / sizeof(T);
+    storage_ = new double[size];
+  }
+
+private:
+  T * storage_;
+};
+
 struct Neurone {
   const std::size_t size_;
-  std::unique_ptr<double[]> weights_;
+  Aligned32ByteRAIIStorage<double> weights_;
 
-  Neurone(std::size_t size) : size_(size), weights_(new double [size+1]) {
+  Neurone(std::size_t size) : size_(size), weights_(size+1) {
     std::random_device rd;
     std::mt19937 generator(rd());
     std::uniform_real_distribution<> distribution(-1.0, 1.0);
@@ -49,38 +92,52 @@ public:
     Create();
   }
 
-  std::vector<double> Process(const std::vector<double> & inputs) const {
+  std::vector<double> Process(const std::vector<double> & inputs) {
     CHECK(inputs.size() == inputs_);
 
-    std::vector<double> lastOutputs = inputs;
-    lastOutputs.reserve(64);
+    double * lastOutputs = buffer1_.Get();
+    std::copy(inputs.cbegin(), inputs.cend(), lastOutputs);
+    lastOutputs[inputs.size()] = kThresholdBias;
 
-    std::vector<double> outputs;
-    outputs.reserve(64);
+    double * outputs = buffer2_.Get();
+
+    std::size_t outputIndex = 0u;
 
     for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
-      outputs.clear();
+      outputIndex = 0u;
 
       for (std::size_t j = 0; j < layers_[i].size_; ++j) {
         std::size_t inputIndex = 0;
         double activation = 0.0;
 
-        const std::size_t inputs = layers_[i].neurones_[j].size_;
         const auto & neurones = layers_[i].neurones_[j];
+        const std::size_t inputs = neurones.size_;
 
-        for (std::size_t k = 0, length = inputs; k < length; ++k)
-          activation += neurones.weights_[k] * lastOutputs[inputIndex++];
+        const std::size_t batches = inputs / 4;
+        for (std::size_t k = 0; k < batches; ++k) {
+          __m256d weights = _mm256_load_pd(neurones.weights_.Get() + (k * 4));
+          __m256d values = _mm256_load_pd(lastOutputs + (k * 4));
+          __m256d result = _mm256_mul_pd(weights, values);
+          __m256d accum = _mm256_hadd_pd(result, result);
+          activation += accum.m256d_f64[0];
+          activation += accum.m256d_f64[2];
+        }
 
-        activation += neurones.weights_[inputs] * kThresholdBias;
+        const std::size_t left = inputs % 4;
+        for (std::size_t k = 0; k < left; ++k) {
+          activation +=
+            neurones.weights_[(batches * 4) + k] * lastOutputs[inputIndex++];
+        }
 
-        outputs.push_back(ActivationFunction(activation, kActivationResponse));
+        outputs[outputIndex++] = ActivationFunction(activation, kActivationResponse);
       }
 
-      lastOutputs = std::move(outputs);
-      outputs.reserve(64);
+      outputs[outputIndex] = kThresholdBias;
+
+      std::swap(lastOutputs, outputs);;
     }
 
-    return lastOutputs;
+    return { lastOutputs, lastOutputs + outputIndex };
   }
 
   std::vector<double> GetWeights() const {
@@ -101,12 +158,12 @@ public:
     return outputs;
   }
 
-  void SetWeights(const std::vector<double> & weights) const {
+  void SetWeights(const std::vector<double> & weights) {
     auto cursor = weights.begin();
 
     for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
       for (std::size_t j = 0; j < layers_[i].size_; ++j) {
-        const auto & neurones = layers_[i].neurones_[j];
+        auto & neurones = layers_[i].neurones_[j];
         const std::size_t inputs = neurones.size_;
 
         for (std::size_t k = 0, length = inputs; k < length; ++k)
@@ -133,6 +190,12 @@ private:
       layers_.emplace_back(neuronesPerHiddenLayer_, neuronesPerHiddenLayer_);
 
     layers_.emplace_back(outputs_, neuronesPerHiddenLayer_);
+
+    const std::size_t BufferSize =
+      std::max(inputs_, std::max(neuronesPerHiddenLayer_, outputs_));
+
+    buffer1_.Reset(BufferSize);
+    buffer2_.Reset(BufferSize);
   }
 
 private:
@@ -142,6 +205,9 @@ private:
   std::size_t neuronesPerHiddenLayer_;
 
   std::vector<NeuroneLayer> layers_;
+
+  Aligned32ByteRAIIStorage<double> buffer1_;
+  Aligned32ByteRAIIStorage<double> buffer2_;
 };
 
 struct Genome {

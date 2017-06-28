@@ -52,7 +52,7 @@ public:
   void Update(uint64_t ms) override {
     static const double kSpeed = 0.01;
 
-    std::vector<double> inputs{ position_[0], position_[1], goal_[0], goal_[1] };
+    std::vector<double> inputs{ position_[0], position_[1], goal_[0], goal_[1], 1.0 };
     auto outputs = brain_.Process(inputs);
 
     double xSpeed = outputs[0] + (-1.f * outputs[1]);
@@ -88,7 +88,7 @@ private:
   double goal_[2];
   double accumulatedFitness_ = 0.0;
 
-  const static std::size_t brainInputs = 4;
+  const static std::size_t brainInputs = 5;
   const static std::size_t brainOutputs = 6;
 
   NeuralNet brain_{ brainInputs, brainOutputs, 1, 16 };
