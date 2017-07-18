@@ -14,9 +14,10 @@ std::vector<std::vector<double>> Generation::Evolve() {
 
   std::sort(population_.begin(), population_.end());
 
-  // TODO: keep elites
-
+  const static int EliteCount = 2;
   const std::size_t size = population_.size();
+  for (int i = 1; i <= EliteCount; ++i)
+    nextGeneration.push_back(population_[size - i].weights_);
 
   auto AccumulateFitness =
     [](double accum, const Genome & genome)

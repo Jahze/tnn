@@ -97,7 +97,6 @@ public:
 
     double * lastOutputs = buffer1_.Get();
     std::copy(inputs.cbegin(), inputs.cend(), lastOutputs);
-    lastOutputs[inputs.size()] = kThresholdBias;
 
     double * outputs = buffer2_.Get();
 
@@ -136,11 +135,10 @@ public:
         for (std::size_t i = 0; i < inputs; ++i)
           activation += neurone.weights_[i] * lastOutputs[inputIndex++];
 #endif
+
         activation += kThresholdBias * neurone.weights_[inputs];
         outputs[outputIndex++] = ActivationFunction(activation, kActivationResponse);
       }
-
-      outputs[outputIndex] = kThresholdBias;
 
       std::swap(lastOutputs, outputs);
     }
@@ -153,13 +151,13 @@ public:
 
     for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
       for (std::size_t j = 0; j < layers_[i].size_; ++j) {
-        const auto & neurones = layers_[i].neurones_[j];
-        const std::size_t inputs = neurones.size_;
+        const auto & neurone = layers_[i].neurones_[j];
+        const std::size_t inputs = neurone.size_;
 
         for (std::size_t k = 0, length = inputs; k < length; ++k)
-          outputs.push_back(neurones.weights_[k]);
+          outputs.push_back(neurone.weights_[k]);
 
-        outputs.push_back(neurones.weights_[inputs]);
+        outputs.push_back(neurone.weights_[inputs]);
       }
     }
 
