@@ -3,6 +3,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -84,31 +85,38 @@ private:
 class TaskList {
 public:
   TaskList(ThreadPool & threadPool)
-    : threadPool_(threadPool), tasks_(0), completed_(0) {}
+      : threadPool_(threadPool), completed_(0) {
+    taskDone_ = taskPromise_.get_future();
+  }
 
   void AddTask(std::function<void()> func) {
-    ++tasks_;
-    threadPool_.DoJob(this, func);
+    tasks_.push_back(func);
   }
 
   void Run() {
-   while (!Completed())
-      std::this_thread::yield();
+    for (auto && task : tasks_)
+      threadPool_.DoJob(this, task);
+
+    taskDone_.wait();
   }
 
   void TaskFinished() {
-    completed_++;
-  }
-
-private:
-  bool Completed() const {
-    return completed_ == tasks_;
+    {
+      // Make sure the mutex is freed by the time we destruct
+      std::unique_lock<std::mutex> lock(lock_);
+      if (++completed_ != tasks_.size())
+        return;
+    }
+    taskPromise_.set_value();
   }
 
 private:
   ThreadPool & threadPool_;
-  int tasks_;
-  std::atomic_int completed_;
+  int completed_;
+  std::mutex lock_;
+  std::promise<void> taskPromise_;
+  std::future<void> taskDone_;
+  std::vector<std::function<void()>> tasks_;
 };
 
 ThreadPool * GetCpuSizedThreadPool();
