@@ -110,31 +110,39 @@ public:
         std::size_t inputIndex = 0;
         double activation = 0.0;
 
-        const auto & neurones = layers_[i].neurones_[j];
-        const std::size_t inputs = neurones.size_;
+        const auto & neurone = layers_[i].neurones_[j];
+        // TODO: size doesn't include the internal threshold node
+        const std::size_t inputs = neurone.size_;
 
+#if 0
+        // activation += sum(weights[i] * inputs[i])
         const std::size_t batches = inputs / 4;
         for (std::size_t k = 0; k < batches; ++k) {
-          __m256d weights = _mm256_load_pd(neurones.weights_.Get() + (k * 4));
+          __m256d weights = _mm256_load_pd(neurone.weights_.Get() + (k * 4));
           __m256d values = _mm256_load_pd(lastOutputs + (k * 4));
           __m256d result = _mm256_mul_pd(weights, values);
           __m256d accum = _mm256_hadd_pd(result, result);
           activation += accum.m256d_f64[0];
           activation += accum.m256d_f64[2];
+          inputIndex += 4;
         }
 
         const std::size_t left = inputs % 4;
         for (std::size_t k = 0; k < left; ++k) {
           activation +=
-            neurones.weights_[(batches * 4) + k] * lastOutputs[inputIndex++];
+            neurone.weights_[(batches * 4) + k] * lastOutputs[inputIndex++];
         }
-
+#else
+        for (std::size_t i = 0; i < inputs; ++i)
+          activation += neurone.weights_[i] * lastOutputs[inputIndex++];
+#endif
+        activation += kThresholdBias * neurone.weights_[inputs];
         outputs[outputIndex++] = ActivationFunction(activation, kActivationResponse);
       }
 
       outputs[outputIndex] = kThresholdBias;
 
-      std::swap(lastOutputs, outputs);;
+      std::swap(lastOutputs, outputs);
     }
 
     return { lastOutputs, lastOutputs + outputIndex };
