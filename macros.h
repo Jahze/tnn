@@ -18,3 +18,5 @@
       std::exit(1); \
     } \
   } while (false)
+
+#define TWO_PI 6.28318530718

@@ -7,7 +7,9 @@
 #include <random>
 #include <string>
 #include "chasers.h"
+#include "colours.h"
 #include "finders.h"
+#include "graph.h"
 #include "graphics.h"
 #include "neural_net.h"
 #include "threadpool.h"
@@ -102,19 +104,37 @@ int main() {
 
   std::cout << "Generation 0\n";
 
+#if 0
   finders::Population population(
     kMsPerFrame,
     kMsPerGeneration,
     glContext,
     kGoals);
-
-  //chasers::Population population(
-  //  kMsPerFrame,
-  //  kMsPerGeneration * 5,
-  //  glContext);
+#elif 0
+  chasers::Population population(
+    kMsPerFrame,
+    kMsPerGeneration * 5,
+    glContext);
+#else
+  colours::Population population(
+    kMsPerFrame,
+    kMsPerFrame * 2,
+    glContext,
+    128,
+    100);
+#endif
 
   ::ShowWindow(hwnd, SW_SHOWNORMAL);
   ::UpdateWindow(hwnd);
+
+  //Graph::Limits limits = {-1., 1., 0, 1.};
+  //Graph graph("graph", limits);
+
+  //Graph::Series series = {
+  //  { {0.0, 0.0}, {1.0, 1.0} }
+  //};
+
+  //graph.AddSeries(series);
 
   ::MSG msg;
 

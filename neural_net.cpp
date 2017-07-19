@@ -5,8 +5,8 @@
 
 const double NeuralNet::kThresholdBias = -1.0;
 const double NeuralNet::kActivationResponse = 1.0;
-const float Generation::kCrossoverRate = 0.7f;
-const float Generation::kMutationRate = 0.15f;
+const double Generation::kCrossoverRate = 0.7;
+const double Generation::kMutationRate = 0.15;
 const double Generation::kMaxPeturbation = 0.3;
 
 std::vector<std::vector<double>> Generation::Evolve() {
@@ -53,7 +53,7 @@ std::vector<std::vector<double>> Generation::Evolve() {
 std::pair<std::vector<double>, std::vector<double>> Generation::Crossover(
   const Genome & mother,
   const Genome & father) {
-  if (RandomFloat() > kCrossoverRate) {
+  if (RandomDouble() > kCrossoverRate) {
     return std::make_pair(mother.weights_, father.weights_);
   }
 
@@ -92,13 +92,13 @@ std::pair<std::vector<double>, std::vector<double>>
   Generation::UniformCrossover(
   const Genome & mother,
   const Genome & father) {
-  if (RandomFloat() > kCrossoverRate) {
+  if (RandomDouble() > kCrossoverRate) {
     return std::make_pair(mother.weights_, father.weights_);
   }
 
   std::vector<double> firstborn, secondborn;
   for (std::size_t i = 0u, length = mother.weights_.size(); i < length; ++i) {
-    if (RandomFloat() < 0.5f) {
+    if (RandomDouble() < 0.5) {
       firstborn.push_back(mother.weights_[i]);
       secondborn.push_back(father.weights_[i]);
     }
@@ -113,7 +113,7 @@ std::pair<std::vector<double>, std::vector<double>>
 
 void Generation::Mutate(std::vector<double> & genome) {
   for (auto & gene : genome) {
-    if (RandomFloat() > kMutationRate)
+    if (RandomDouble() > mutationRate_)
       continue;
 
     gene += RandomDouble(-1.0, 1.0) * kMaxPeturbation;

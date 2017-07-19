@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <numeric>
 #include <random>
 #include "graphics.h"
 #include "neural_net.h"
@@ -101,19 +102,20 @@ public:
     : SimpleObject(x, y) {
     goal_[0] = goalx;
     goal_[1] = goaly;
+    distances_.reserve(10000);
   }
 
   void Update(uint64_t ms) override {
-    static const double kSpeed = 0.01;
+    static const double kSpeed = 0.10;
 
     std::vector<double> inputs{ position_[0], position_[1], goal_[0], goal_[1] };
     auto outputs = brain_.Process(inputs);
 
-    double xSpeed = outputs[0] + (-1.f * outputs[1]);
-    double ySpeed = outputs[2] + (-1.f * outputs[3]);
+    double xSpeed = (outputs[0] * 2.0) - 1.0;
+    double ySpeed = (outputs[1] * 2.0) - 1.0;
 
-    xSpeed *= outputs[4] * kSpeed * ms;
-    ySpeed *= outputs[5] * kSpeed * ms;
+    xSpeed *= outputs[2] * kSpeed * ms;
+    ySpeed *= outputs[3] * kSpeed * ms;
 
     position_[0] += xSpeed;
     position_[1] += ySpeed;
@@ -125,12 +127,12 @@ public:
     return std::sqrt(x*x + y*y);
   }
 
-  //void AccumulateDistance() { accumulatedDistance_ += CalculateDistance(); }
-  //double GetAccumulatedDistance() const { return accumulatedDistance_; }
+  void AccumulateDistance() { distances_.push_back(CalculateDistance()); }
 
-  Genome GetGenome(double maxDistance) const {
-    //return { brain_.GetWeights(), maxDistance + 1.0 - accumulatedDistance_ };
-    return{ brain_.GetWeights(), maxDistance + 1.0 - CalculateDistance() };
+  Genome GetGenome() const {
+    double total = std::accumulate(distances_.begin(), distances_.end(), 0.0);
+    double avg = total / distances_.size();
+    return { brain_.GetWeights(), 1.0 / avg };
   }
 
   void SetWeights(const std::vector<double> & weights) {
@@ -142,11 +144,11 @@ public:
 private:
   double goal_[2];
   double accumulatedDistance_ = 0.0;
-
+  std::vector<double> distances_;
   const static std::size_t brainInputs = 4;
-  const static std::size_t brainOutputs = 6;
+  const static std::size_t brainOutputs = 4;
 
-  NeuralNet brain_{ brainInputs, brainOutputs, 1, 16 };
+  NeuralNet brain_{ brainInputs, brainOutputs, 3, 8 };
 };
 
 class Population : public ::Population {
@@ -177,7 +179,7 @@ protected:
   void UpdateImpl(bool render, std::size_t ms) {
     for (auto && object : objects_) {
       object->SetGoal(goal_->GetX(), goal_->GetY());
-      //object->AccumulateDistance();
+      object->AccumulateDistance();
     }
 
     scene_->Update(ms);
@@ -208,16 +210,9 @@ protected:
   }
 
   void DoEvolve() {
-    double maxDistance = 0.0;
-    for (auto && object : objects_) {
-      //double d = object->GetAccumulatedDistance();
-      double d = object->CalculateDistance();
-      if (d > maxDistance) maxDistance = d;
-    }
-
     std::vector<Genome> genomes;
     for (auto && object : objects_)
-      genomes.push_back(object->GetGenome(maxDistance));
+      genomes.push_back(object->GetGenome());
 
     Generation generation(genomes);
 

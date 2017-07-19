@@ -52,14 +52,21 @@ public:
   void Update(uint64_t ms) override {
     static const double kSpeed = 0.01;
 
-    std::vector<double> inputs{ position_[0], position_[1], goal_[0], goal_[1], 1.0 };
+    std::vector<double> inputs{ position_[0], position_[1], goal_[0], goal_[1] };
     auto outputs = brain_.Process(inputs);
 
-    double xSpeed = outputs[0] + (-1.f * outputs[1]);
-    double ySpeed = outputs[2] + (-1.f * outputs[3]);
+    double xSpeed = (outputs[0] * 2.0) - 1.0;
+    double ySpeed = (outputs[1] * 2.0) - 1.0;
 
-    xSpeed *= outputs[4] * kSpeed * ms;
-    ySpeed *= outputs[5] * kSpeed * ms;
+    xSpeed *= outputs[2] * kSpeed * ms;
+    ySpeed *= outputs[3] * kSpeed * ms;
+
+    //double angle = TWO_PI * outputs[0];
+    //double xSpeed = std::cos(angle);
+    //double ySpeed = std::sin(angle);
+
+    //xSpeed *= outputs[1] * kSpeed * ms;
+    //ySpeed *= outputs[2] * kSpeed * ms;
 
     position_[0] += xSpeed;
     position_[1] += ySpeed;
@@ -88,10 +95,10 @@ private:
   double goal_[2];
   double accumulatedFitness_ = 0.0;
 
-  const static std::size_t brainInputs = 5;
-  const static std::size_t brainOutputs = 6;
+  const static std::size_t brainInputs = 4;
+  const static std::size_t brainOutputs = 4;
 
-  NeuralNet brain_{ brainInputs, brainOutputs, 1, 16 };
+  NeuralNet brain_{ brainInputs, brainOutputs, 1, 8 };
 };
 
 class Population : public ::Population {

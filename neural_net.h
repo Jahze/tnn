@@ -237,9 +237,11 @@ public:
 
   std::vector<std::vector<double>> Evolve();
 
+  void SetMutationRate(double rate) { mutationRate_ = rate; }
+
 private:
-  const static float kCrossoverRate;
-  const static float kMutationRate;
+  const static double kCrossoverRate;
+  const static double kMutationRate;
   const static double kMaxPeturbation;
 
   std::pair<std::vector<double>, std::vector<double>> Crossover(
@@ -252,8 +254,8 @@ private:
 
   void Mutate(std::vector<double> & genome);
 
-  float RandomFloat() {
-    std::uniform_real_distribution<float> distribution(0., 1.);
+  double RandomDouble() {
+    std::uniform_real_distribution<double> distribution(0., 1.);
     return distribution(rng_);
   }
 
@@ -273,6 +275,7 @@ private:
   std::vector<Genome> population_;
   std::random_device random_;
   std::mt19937 rng_;
+  double mutationRate_ = kMutationRate;
 };
 
 class Population {
