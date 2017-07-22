@@ -6,7 +6,7 @@
 #include "graphics.h"
 #include "neural_net.h"
 
-namespace colours {
+namespace backprop {
 
 const std::size_t BrainInputs = 3;
 const std::size_t BrainOutputs = 3;
@@ -45,40 +45,29 @@ public:
     glVertex2d(position_[0] + halfSize, position_[1] + halfSize);
     glVertex2d(position_[0] - halfSize, position_[1] + halfSize);
 
-    //static const double sqrt3 = std::sqrt(3.0);
-    //double r = goal_.r - colour_.r;
-    //double g = goal_.g - colour_.g;
-    //double b = goal_.b - colour_.b;
-    //const double colour = std::sqrt(r*r + g*g + b*b) / sqrt3;
-
-    //glColor3d(colour, colour, colour);
-    //glVertex2d(position_[0] - size_, position_[1] - size_);
-    //glVertex2d(position_[0] + size_, position_[1] - size_);
-    //glVertex2d(position_[0] + size_, position_[1] + size_);
-    //glVertex2d(position_[0] - size_, position_[1] + size_);
-
     glEnd();
   }
 
   void Update(uint64_t ms) override {
-    std::vector<double> inputs{ (goal_.r * 2.0) - 1.0,
-      (goal_.g * 2.0) - 1.0,
-      (goal_.b * 2.0) - 1.0 };
+    std::vector<double> inputs = GetInputs();
     auto outputs = brain_.Process(inputs);
     colour_.r = outputs[0];
     colour_.g = outputs[1];
     colour_.b = outputs[2];
   }
 
-  double CalculateFitness() const {
-    double r = goal_.r - colour_.r;
-    double g = goal_.g - colour_.g;
-    double b = goal_.b - colour_.b;
-    return 2.0 -  std::sqrt(r*r + g*g + b*b);
-  }
-
   void SetWeights(const std::vector<double> & weights) {
     brain_.SetWeights(weights);
+  }
+
+  std::vector<double> GetInputs() const {
+    return { (goal_.r * 2.0) - 1.0,
+      (goal_.g * 2.0) - 1.0,
+      (goal_.b * 2.0) - 1.0 };
+  }
+
+  std::vector<double> GetIdealOutputs() const {
+    return { goal_.r, goal_.g, goal_.b };
   }
 
 protected:
@@ -95,22 +84,26 @@ public:
   Simulation(std::size_t msPerFrame,
              std::size_t msPerGenerationRender,
              OpenGLContext & context,
-             std::size_t size,
-             std::size_t populationSize)
+             std::size_t trainingDataSize)
     : ::Simulation(msPerFrame, msPerGenerationRender)
-    , context_(context), rng_(random_()), goals_(size) {
-    for (std::size_t i = 0; i < populationSize; ++i) {
-      brains_.emplace_back(BrainInputs, BrainOutputs,
-        HiddenLayers, NeuronesPerLayer);
+    , context_(context), rng_(random_()), trainingData_(trainingDataSize)
+    , brain_(BrainInputs, BrainOutputs, HiddenLayers, NeuronesPerLayer) {}
+
+protected:
+  void StartImpl() {
+    generation_ = 0;
+
+    scene_.reset(new Scene());
+
+    for (auto && datum : trainingData_) {
+      Colour rgb = { RandomDouble(0.0, 1.0),
+        RandomDouble(0.0, 1.0),
+        RandomDouble(0.0, 1.0) };
+
+      datum = rgb;
     }
-  }
 
-  void GenerateInitialPopulation() {
-    CreateSceneAndGoal();
-
-    objects_.clear();
-
-    const auto length = goals_.size();
+    const auto length = trainingData_.size();
     std::size_t perRow = 1;
     std::size_t square = 2;
     while (square < length) {
@@ -132,18 +125,11 @@ public:
         row++;
       }
 
-      objects_.emplace_back(new ColourObject(x, y, goals_[i]));
+      objects_.emplace_back(new ColourObject(x, y, trainingData_[i]));
       auto & object = objects_.back();
       object->SetSize(halfCellDistance);
       scene_->AddObject(object.get());
     }
-  }
-
-protected:
-  void StartImpl() {
-    generation_ = 0;
-
-    GenerateInitialPopulation();
   }
 
   void UpdateImpl(bool render, std::size_t ms) {
@@ -154,67 +140,29 @@ protected:
   }
 
   void Train() {
-    std::vector<Genome> genomes;
-    std::vector<double> fitnesses(objects_.size());
     const std::size_t objectCount = objects_.size();
 
-    double bestFitness = 0.0;
-    for (auto && brain : brains_) {
-      auto weights = brain.GetWeights();
+    auto weights = brain_.GetWeights();
 
-      for (std::size_t i = 0; i < objectCount; ++i) {
-        objects_[i]->SetWeights(weights);
-        objects_[i]->Update(1);
-        fitnesses[i] = objects_[i]->CalculateFitness();
-      }
+    for (std::size_t i = 0; i < objectCount; ++i) {
+      const auto & inputs = objects_[i]->GetInputs();
+      const auto & outputs = objects_[i]->GetIdealOutputs();
 
-      const double totalFitness = std::accumulate(fitnesses.begin(),
-        fitnesses.end(), 0.0);
-      const double avgFitness = totalFitness / (double)objectCount;
-      if (bestFitness < avgFitness) bestFitness = avgFitness;
-      genomes.push_back({ weights, avgFitness });
+      auto lossFunction = [&outputs](double value, std::size_t i) {
+        return -(outputs[i] - value);
+      };
+
+      brain_.BackPropagation(inputs, lossFunction);
     }
 
-    Generation generation(genomes);
-    generation.SetMutationRate(0.3);
-
-    auto nextGeneration = generation.Evolve();
-
-    auto cursor = nextGeneration.begin();
-
-    // FIXME: this is a hack because the first will be the best
-    auto best = *cursor;
-
     for (auto && object : objects_)
-      object->SetWeights(best);
+      object->SetWeights(brain_.GetWeights());
 
-    for (auto && brain : brains_)
-      brain.SetWeights(*cursor++);
-
-    CHECK(cursor == nextGeneration.end());
-
-    std::cout << "Generation " << ++generation_
-      << " (fitness = " << bestFitness << ")\n";
+    std::cout << "Generation " << ++generation_ << "\n";
   }
 
 private:
-  void CreateGoal() {
-    for (auto && goal : goals_) {
-      Colour rgb = { RandomFloat(0.0, 1.0),
-        RandomFloat(0.0, 1.0),
-        RandomFloat(0.0, 1.0) };
-
-      goal = rgb;
-    }
-  }
-
-  void CreateSceneAndGoal() {
-    scene_.reset(new Scene());
-
-    CreateGoal();
-  }
-
-  double RandomFloat(double min, double max) {
+  double RandomDouble(double min, double max) {
     std::uniform_real_distribution<> distribution(min, max);
     return distribution(rng_);
   }
@@ -222,8 +170,8 @@ private:
 private:
   OpenGLContext & context_;
   std::unique_ptr<Scene> scene_;
-  std::vector<Colour> goals_;
-  std::vector<NeuralNet> brains_;
+  std::vector<Colour> trainingData_;
+  NeuralNet brain_;
   std::vector<std::unique_ptr<ColourObject>> objects_;
   std::random_device random_;
   std::mt19937 rng_;

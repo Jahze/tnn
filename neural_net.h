@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <immintrin.h>
+#include <functional>
 #include <memory>
 #include <random>
 #include <vector>
@@ -95,10 +96,10 @@ public:
   std::vector<double> Process(const std::vector<double> & inputs) {
     CHECK(inputs.size() == inputs_);
 
-    double * lastOutputs = buffer1_.Get();
-    std::copy(inputs.cbegin(), inputs.cend(), lastOutputs);
+    Aligned32ByteRAIIStorage<double> * lastOutputs = buffers_.data();
+    std::copy(inputs.cbegin(), inputs.cend(), lastOutputs->Get());
 
-    double * outputs = buffer2_.Get();
+    Aligned32ByteRAIIStorage<double> * outputs = (lastOutputs + 1);
 
     std::size_t outputIndex = 0u;
 
@@ -110,7 +111,6 @@ public:
         double activation = 0.0;
 
         const auto & neurone = layers_[i].neurones_[j];
-        // TODO: size doesn't include the internal threshold node
         const std::size_t inputs = neurone.size_;
 
 #if 0
@@ -133,17 +133,18 @@ public:
         }
 #else
         for (std::size_t i = 0; i < inputs; ++i)
-          activation += neurone.weights_[i] * lastOutputs[inputIndex++];
+          activation += neurone.weights_[i] * lastOutputs->Get()[inputIndex++];
 #endif
 
         activation += kThresholdBias * neurone.weights_[inputs];
-        outputs[outputIndex++] = ActivationFunction(activation, kActivationResponse);
+        outputs->Get()[outputIndex++] =
+          ActivationFunction(activation, kActivationResponse);
       }
 
-      std::swap(lastOutputs, outputs);
+      lastOutputs = outputs++;
     }
 
-    return { lastOutputs, lastOutputs + outputIndex };
+    return { lastOutputs->Get(), lastOutputs->Get() + outputIndex };
   }
 
   std::vector<double> GetWeights() const {
@@ -169,13 +170,13 @@ public:
 
     for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
       for (std::size_t j = 0; j < layers_[i].size_; ++j) {
-        auto & neurones = layers_[i].neurones_[j];
-        const std::size_t inputs = neurones.size_;
+        auto & neurone = layers_[i].neurones_[j];
+        const std::size_t inputs = neurone.size_;
 
         for (std::size_t k = 0, length = inputs; k < length; ++k)
-          neurones.weights_[k] = *cursor++;
+          neurone.weights_[k] = *cursor++;
 
-        neurones.weights_[inputs] = *cursor++;
+        neurone.weights_[inputs] = *cursor++;
       }
     }
 
@@ -184,6 +185,102 @@ public:
 
   double ActivationFunction(double activation, double response) const {
     return (1.0 / (1.0 + std::exp(-activation / response)));
+  }
+
+  double ActivationFunctionDerivative(double activation,
+      double response) const {
+    const double value = ActivationFunction(activation, response);
+    return value * (1 - value);
+  }
+
+  void BackPropagation(const std::vector<double> & inputs,
+      std::function<double(double,std::size_t)> lossFunctionDerivative) {
+
+    Process(inputs);
+
+    std::vector<double> weights;
+
+    std::vector<double> last_dLoss_dOut;
+    std::vector<double> next_dLoss_dOut;
+    std::vector<double> last_dOut_dActivation;
+    std::vector<double> next_dOut_dActivation;
+
+    for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
+      // Go backwards through the layers
+      const std::size_t current = hiddenLayers_ - i;
+
+      auto & layer = layers_[current];
+
+      for (std::size_t j = 0; j < layer.size_; ++j) {
+        const std::size_t neuroneIndex = layer.size_ - 1 - j;
+
+        auto & neurone = layer.neurones_[neuroneIndex];
+        const std::size_t inputs = neurone.size_;
+
+        const double LearningRate = 0.5;
+        const double out = buffers_[current + 1][neuroneIndex];
+
+        // dLoss/dWeight = dLoss/dOut * dOut/dActivation * dActivation/dWeight
+
+        const double dLoss_dOut = lossFunctionDerivative(out, neuroneIndex);
+        next_dLoss_dOut.push_back(dLoss_dOut);
+
+        // derivative of activation function
+        const double dOut_dActivation = (out * (1.0 - out));
+        next_dOut_dActivation.push_back(dOut_dActivation);
+
+        // derivative of neuron output function multiplied in final calc
+        const double dLoss_dActivation = dLoss_dOut * dOut_dActivation;
+
+        // put weights in backwards
+
+        // TODO: should we pass-through?
+        //weights.push_back(neurone.weights_[inputs]);
+        weights.push_back(neurone.weights_[inputs] -
+          (LearningRate * dLoss_dActivation * kThresholdBias));
+
+        for (std::size_t k = 0; k < inputs; ++k) {
+          const std::size_t weightIndex = inputs - k - 1;
+
+          const double divergence = LearningRate * dLoss_dActivation
+            * buffers_[current][weightIndex];
+
+          weights.push_back(neurone.weights_[weightIndex] - divergence);
+        }
+      }
+
+      // dLoss/dOut = sum(dLoss_last/dActivation_last * dActivation/dOut_last) 
+      // dLoss_last/dActivation_last =
+      //          dLoss_last/dOut_last * dOut_last/dActivation_last
+      // dActivation/dOut_last = weight
+
+      last_dLoss_dOut = std::move(next_dLoss_dOut);
+      std::reverse(last_dLoss_dOut.begin(), last_dLoss_dOut.end());
+      next_dLoss_dOut.clear();
+
+      last_dOut_dActivation = std::move(next_dOut_dActivation);
+      std::reverse(last_dOut_dActivation.begin(), last_dOut_dActivation.end());
+      next_dOut_dActivation.clear();
+
+      lossFunctionDerivative =
+        [this, &last_dLoss_dOut, &last_dOut_dActivation, current]
+        (double, std::size_t index) {
+
+          auto & layer = layers_[current];
+
+          double value = 0.0;
+
+          for (std::size_t i = 0; i < layer.size_; ++i) {
+            value += last_dLoss_dOut[i] * last_dOut_dActivation[i]
+              * layer.neurones_[i].weights_[index];
+          }
+
+          return value;
+        };
+    }
+
+    std::reverse(weights.begin(), weights.end());
+    SetWeights(weights);
   }
 
 private:
@@ -200,8 +297,10 @@ private:
     const std::size_t BufferSize =
       std::max(inputs_, std::max(neuronesPerHiddenLayer_, outputs_));
 
-    buffer1_.Reset(BufferSize);
-    buffer2_.Reset(BufferSize);
+    // extra layers for input and output
+    const std::size_t bufferCount = hiddenLayers_ + 2;
+    for (std::size_t i = 0; i < bufferCount; ++i)
+      buffers_.emplace_back(BufferSize);
   }
 
 private:
@@ -212,8 +311,7 @@ private:
 
   std::vector<NeuroneLayer> layers_;
 
-  Aligned32ByteRAIIStorage<double> buffer1_;
-  Aligned32ByteRAIIStorage<double> buffer2_;
+  std::vector<Aligned32ByteRAIIStorage<double>> buffers_;
 };
 
 struct Genome {
@@ -278,9 +376,9 @@ private:
   double mutationRate_ = kMutationRate;
 };
 
-class Population {
+class Simulation {
 public:
-  Population(std::size_t msPerFrame, std::size_t msPerGenerationRender)
+  Simulation(std::size_t msPerFrame, std::size_t msPerGenerationRender)
     : msPerFrame_(msPerFrame), msPerGenerationRender_(msPerGenerationRender) {}
 
   void Start() {
@@ -310,7 +408,7 @@ public:
       for (uint64_t i = 0; i < extraTicks; ++i)
         UpdateImpl(false, msPerFrame_);
 
-      Evolve();
+      Train();
 
       timeSinceSpawn_ = std::chrono::milliseconds(0u);
       lastTick_ = std::chrono::high_resolution_clock::now();
@@ -320,7 +418,7 @@ public:
 protected:
   virtual void StartImpl() = 0;
   virtual void UpdateImpl(bool render, std::size_t ms) = 0;
-  virtual void Evolve() = 0;
+  virtual void Train() = 0;
 
 private:
   std::chrono::time_point<std::chrono::steady_clock> lastTick_;

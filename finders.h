@@ -101,13 +101,13 @@ private:
   NeuralNet brain_{ brainInputs, brainOutputs, 1, 8 };
 };
 
-class Population : public ::Population {
+class Simulation : public ::Simulation {
 public:
-  Population(std::size_t msPerFrame,
+  Simulation(std::size_t msPerFrame,
              std::size_t msPerGenerationRender,
              OpenGLContext & context,
              std::size_t goals)
-    : ::Population(msPerFrame, msPerGenerationRender)
+    : ::Simulation(msPerFrame, msPerGenerationRender)
     , context_(context), rng_(random_()), goals_(goals) {}
 
   void GenerateInitialPopulation() {
@@ -159,7 +159,7 @@ protected:
     }
   }
 
-  void Evolve() {
+  void Train() {
     if (++currentGoal_ < goals_) {
       CreateNewGoal();
     }

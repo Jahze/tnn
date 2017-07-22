@@ -131,6 +131,7 @@
     <ClCompile Include="threadpool.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="backprop.h" />
     <ClInclude Include="colours.h" />
     <ClInclude Include="finders.h" />
     <ClInclude Include="chasers.h" />

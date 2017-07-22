@@ -6,6 +6,7 @@
 #include <chrono>
 #include <random>
 #include <string>
+#include "backprop.h"
 #include "chasers.h"
 #include "colours.h"
 #include "finders.h"
@@ -105,18 +106,24 @@ int main() {
   std::cout << "Generation 0\n";
 
 #if 0
-  finders::Population population(
+  finders::Simulation population(
     kMsPerFrame,
     kMsPerGeneration,
     glContext,
     kGoals);
 #elif 0
-  chasers::Population population(
+  chasers::Simulation population(
     kMsPerFrame,
     kMsPerGeneration * 5,
     glContext);
+#elif 1
+  backprop::Simulation population(
+    kMsPerFrame,
+    kMsPerFrame * 2,
+    glContext,
+    128);
 #else
-  colours::Population population(
+  colours::Simulation population(
     kMsPerFrame,
     kMsPerFrame * 2,
     glContext,

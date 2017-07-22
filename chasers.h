@@ -151,12 +151,12 @@ private:
   NeuralNet brain_{ brainInputs, brainOutputs, 3, 8 };
 };
 
-class Population : public ::Population {
+class Simulation : public ::Simulation {
 public:
-  Population(std::size_t msPerFrame,
+  Simulation(std::size_t msPerFrame,
              std::size_t msPerGenerationRender,
              OpenGLContext & context)
-    : ::Population(msPerFrame, msPerGenerationRender)
+    : ::Simulation(msPerFrame, msPerGenerationRender)
     , context_(context), rng_(random_()) {}
 
   void GenerateInitialPopulation() {
@@ -203,7 +203,7 @@ protected:
     }
   }
 
-  void Evolve() {
+  void Train() {
     DoEvolve();
 
     std::cout << "Generation " << ++generation_ << "\n";
