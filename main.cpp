@@ -117,6 +117,11 @@ int main() {
     kMsPerGeneration * 5,
     glContext);
 #elif 1
+  chasers::BackPropSimulation population(
+    kMsPerFrame,
+    kMsPerGeneration * 15,
+    glContext);
+#elif 0
   backprop::Simulation population(
     kMsPerFrame,
     kMsPerFrame * 2,

@@ -8,6 +8,11 @@
 
 namespace chasers {
 
+const static std::size_t BrainInputs = 4;
+const static std::size_t BrainOutputs = 3;
+const static std::size_t HiddenLayers = 3;
+const static std::size_t NeuronesPerLayer = 8;
+
 class SimpleObject : public ISceneObject {
 public:
   SimpleObject(double x, double y) {
@@ -91,7 +96,7 @@ private:
 
 private:
   std::mt19937 & rng_;
-  std::uniform_real_distribution<> speedDistribution_{-1.0, 1.0};
+  std::uniform_real_distribution<> speedDistribution_{-2.0, 2.0};
   std::uniform_real_distribution<> changeDistribution_{0.0, 1.0};
   double speed_[2];
 };
@@ -106,16 +111,17 @@ public:
   }
 
   void Update(uint64_t ms) override {
-    static const double kSpeed = 0.10;
+    //static const double kSpeed = 0.10;
+    static const double kSpeed = 0.01;
 
-    std::vector<double> inputs{ position_[0], position_[1], goal_[0], goal_[1] };
+    std::vector<double> inputs = GetInputs();
     auto outputs = brain_.Process(inputs);
 
     double xSpeed = (outputs[0] * 2.0) - 1.0;
     double ySpeed = (outputs[1] * 2.0) - 1.0;
 
     xSpeed *= outputs[2] * kSpeed * ms;
-    ySpeed *= outputs[3] * kSpeed * ms;
+    ySpeed *= outputs[2] * kSpeed * ms;
 
     position_[0] += xSpeed;
     position_[1] += ySpeed;
@@ -125,6 +131,12 @@ public:
     const double x = position_[0] - goal_[0];
     const double y = position_[1] - goal_[1];
     return std::sqrt(x*x + y*y);
+  }
+
+  std::pair<double, double> DirectionToGoal() const {
+    return std::make_pair(
+      goal_[0] - position_[0],
+      goal_[1] - position_[1]);
   }
 
   void AccumulateDistance() { distances_.push_back(CalculateDistance()); }
@@ -139,23 +151,34 @@ public:
     brain_.SetWeights(weights);
   }
 
-  void SetGoal(double x, double y) { goal_[0] = x; goal_[1] = y; }
+  void SetGoal(double x, double y) {
+    goal_[0] = x;
+    goal_[1] = y;
+  }
+
+  void SetPosition(double x, double y) {
+    position_[0] = x;
+    position_[1] = y;
+  }
+
+  std::vector<double> GetInputs() const {
+    return { position_[0], position_[1], goal_[0], goal_[1] };
+  }
 
 private:
   double goal_[2];
   double accumulatedDistance_ = 0.0;
   std::vector<double> distances_;
-  const static std::size_t brainInputs = 4;
-  const static std::size_t brainOutputs = 4;
 
-  NeuralNet brain_{ brainInputs, brainOutputs, 3, 8 };
+  NeuralNet brain_{ BrainInputs, BrainOutputs,
+    HiddenLayers, NeuronesPerLayer };
 };
 
-class Simulation : public ::Simulation {
+class SimulationBase : public ::Simulation {
 public:
-  Simulation(std::size_t msPerFrame,
-             std::size_t msPerGenerationRender,
-             OpenGLContext & context)
+  SimulationBase(std::size_t msPerFrame,
+                std::size_t msPerGenerationRender,
+                OpenGLContext & context)
     : ::Simulation(msPerFrame, msPerGenerationRender)
     , context_(context), rng_(random_()) {}
 
@@ -232,12 +255,12 @@ protected:
     CHECK(cursor == nextGeneration.end());
   }
 
-private:
+protected:
   const std::size_t kPopulationSize = 50u;
 
   std::pair<double, double> CreateGoal() {
-    const double goalX = RandomFloat(-0.9, 0.9);
-    const double goalY = RandomFloat(-0.9, 0.9);
+    const double goalX = RandomDouble(-0.9, 0.9);
+    const double goalY = RandomDouble(-0.9, 0.9);
 
     goal_.reset(new GoalObject(rng_, goalX, goalY));
     goal_->SetSize(0.01);
@@ -253,12 +276,12 @@ private:
     return CreateGoal();
   }
 
-  double RandomFloat(double min, double max) {
+  double RandomDouble(double min, double max) {
     std::uniform_real_distribution<> distribution(min, max);
     return distribution(rng_);
   }
 
-private:
+protected:
   OpenGLContext & context_;
   std::unique_ptr<Scene> scene_;
   std::unique_ptr<GoalObject> goal_;
@@ -266,6 +289,171 @@ private:
   std::random_device random_;
   std::mt19937 rng_;
   std::size_t generation_;
+};
+
+class Simulation: public SimulationBase {
+public:
+  Simulation(std::size_t msPerFrame,
+             std::size_t msPerGenerationRender,
+             OpenGLContext & context)
+    : SimulationBase(msPerFrame, msPerGenerationRender, context) {}
+
+protected:
+  void UpdateImpl(bool render, std::size_t ms) {
+    for (auto && object : objects_) {
+      object->SetGoal(goal_->GetX(), goal_->GetY());
+      object->AccumulateDistance();
+    }
+
+    scene_->Update(ms);
+
+    if (render) {
+      double minDistance = std::numeric_limits<double>::max();
+      SmartObject * best = nullptr;
+      for (auto && object : objects_) {
+        double d = object->CalculateDistance();
+        if (d < minDistance) {
+          best = object.get();
+          minDistance = d;
+        }
+      }
+
+      best->SetColour(1.0, 0.0, 0.0);
+
+      scene_->Render(context_);
+
+      best->SetColour(1.0, 1.0, 1.0);
+    }
+  }
+
+  void Train() {
+    DoEvolve();
+
+    std::cout << "Generation " << ++generation_ << "\n";
+  }
+
+  void DoEvolve() {
+    std::vector<Genome> genomes;
+    for (auto && object : objects_)
+      genomes.push_back(object->GetGenome());
+
+    Generation generation(genomes);
+
+    auto nextGeneration = generation.Evolve();
+
+    auto goal = CreateSceneAndGoal();
+
+    objects_.clear();
+    auto cursor = nextGeneration.begin();
+
+    for (std::size_t i = 0; i < kPopulationSize; ++i) {
+      objects_.emplace_back(new SmartObject(0.0, 0.0, goal.first, goal.second));
+      objects_.back()->SetWeights(*cursor++);
+      scene_->AddObject(objects_.back().get());
+    }
+
+    CHECK(cursor == nextGeneration.end());
+  }
+};
+
+class BackPropSimulation : public SimulationBase {
+public:
+  BackPropSimulation(std::size_t msPerFrame,
+                     std::size_t msPerGenerationRender,
+                     OpenGLContext & context)
+    : SimulationBase(msPerFrame, msPerGenerationRender, context)
+    , brain_(BrainInputs, BrainOutputs, HiddenLayers, NeuronesPerLayer) {
+    SpreadObjects();
+  }
+
+protected:
+  void SpreadObjects() {
+    for (auto && object : objects_) {
+      double x = RandomDouble(-1.0, 1.0);
+      double y = RandomDouble(-1.0, 1.0);
+      object->SetPosition(x, y);
+    }
+  }
+
+  void UpdateImpl(bool render, std::size_t ms) {
+    for (auto && object : objects_) {
+      object->SetGoal(goal_->GetX(), goal_->GetY());
+    }
+
+    scene_->Update(ms);
+
+    const std::size_t TimeBetweenTrain = 100u;
+    if (timeSinceTrain_ > TimeBetweenTrain) {
+      timeSinceTrain_ = 0u;
+      UpdateBrain();
+    }
+    else {
+      timeSinceTrain_ += ms;
+    }
+
+    if (render)
+      scene_->Render(context_);
+  }
+
+  std::pair<double,double> Normalise(std::pair<double,double> vector) {
+    const double magnitude = std::sqrt(
+      (vector.first * vector.first) + (vector.second * vector.second));
+    return std::make_pair(vector.first/magnitude, vector.second/magnitude);
+  }
+
+  void Train() {
+    const double totalLoss = UpdateBrain();
+
+    SpreadObjects();
+
+    std::cout << "Generation " << ++generation_
+      << " (loss=" << totalLoss << ")\n";
+  }
+
+  double UpdateBrain() {
+    std::vector<std::vector<double>> outputs;
+
+    for (auto && object : objects_)
+      outputs.push_back(brain_.Process(object->GetInputs()));
+
+    std::size_t outputIndex = 0;
+    double totalLoss = 0.0;
+
+    for (auto && object : objects_) {
+      const auto & inputs = object->GetInputs();
+
+      auto direction = Normalise(object->DirectionToGoal());
+
+      const double MaxDistance = 4.0;
+      auto distance = std::min(MaxDistance, object->CalculateDistance());
+
+      std::vector<double> idealOutputs = { direction.first,
+        direction.second, distance / MaxDistance };
+
+      double xloss = outputs[outputIndex][0] - idealOutputs[0];
+      double yloss = outputs[outputIndex][1] - idealOutputs[1];
+      double sloss = outputs[outputIndex][2] - idealOutputs[2];
+
+      totalLoss += std::sqrt(xloss*xloss + yloss*yloss + sloss*sloss);
+
+      outputIndex++;
+
+      auto lossFunction = [&idealOutputs](double value, std::size_t i) {
+        return -(idealOutputs[i] - value);
+      };
+
+      brain_.BackPropagation(inputs, lossFunction);
+    }
+
+    for (auto && object : objects_)
+      object->SetWeights(brain_.GetWeights());
+
+    return totalLoss;
+  }
+
+protected:
+  NeuralNet brain_;
+  std::size_t timeSinceTrain_ = 0u;
 };
 
 }

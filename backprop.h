@@ -70,6 +70,8 @@ public:
     return { goal_.r, goal_.g, goal_.b };
   }
 
+  const Colour & GetColour() const { return colour_; }
+
 protected:
   Colour colour_ = { 1.0, 1.0, 1.0 };
   Colour goal_ = { 1.0, 1.0, 1.0 };
@@ -140,13 +142,18 @@ protected:
   }
 
   void Train() {
-    const std::size_t objectCount = objects_.size();
+    double totalLoss = 0.0;
 
-    auto weights = brain_.GetWeights();
+    for (auto && object : objects_) {
+      const auto & inputs = object->GetInputs();
+      const auto & outputs = object->GetIdealOutputs();
+      const Colour & colour = object->GetColour();
 
-    for (std::size_t i = 0; i < objectCount; ++i) {
-      const auto & inputs = objects_[i]->GetInputs();
-      const auto & outputs = objects_[i]->GetIdealOutputs();
+      double rloss = colour.r - outputs[0];
+      double gloss = colour.g - outputs[1];
+      double bloss = colour.b - outputs[2];
+
+      totalLoss += std::sqrt(rloss*rloss + gloss*gloss + bloss*bloss);
 
       auto lossFunction = [&outputs](double value, std::size_t i) {
         return -(outputs[i] - value);
@@ -158,7 +165,8 @@ protected:
     for (auto && object : objects_)
       object->SetWeights(brain_.GetWeights());
 
-    std::cout << "Generation " << ++generation_ << "\n";
+    std::cout << "Generation " << ++generation_
+      << " (loss=" << totalLoss << ")\n";
   }
 
 private:
