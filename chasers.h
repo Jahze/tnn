@@ -5,6 +5,7 @@
 #include <random>
 #include "graphics.h"
 #include "neural_net.h"
+#include "timer.h"
 
 namespace chasers {
 
@@ -402,12 +403,16 @@ protected:
   }
 
   void Train() {
+    Timer timer;
+
     const double totalLoss = UpdateBrain();
+
+    uint64_t updateTime = timer.ElapsedMicroseconds();
 
     SpreadObjects();
 
     std::cout << "Generation " << ++generation_
-      << " (loss=" << totalLoss << ")\n";
+      << " (loss=" << totalLoss << ", time=" << updateTime << "us)\n";
   }
 
   double UpdateBrain() {

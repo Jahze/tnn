@@ -23,9 +23,6 @@ public:
     hglrc_ = ::wglCreateContext(hdc_);
     wglMakeCurrent(hdc_, hglrc_);
 
-    ::RECT rect;
-    ::GetClientRect(hwnd, &rect);
-
     InitialiseGL();
   }
 
@@ -44,10 +41,17 @@ public:
 
   void Resize();
 
+  void AddResizeListener(std::function<void()> listener) {
+    resizeListeners_.push_back(listener);
+  }
+
   void SwapBuffers() {
     CHECK(hdc_);
     ::SwapBuffers(hdc_);
   }
+
+  std::size_t Width() const { return width_; }
+  std::size_t Height() const { return height_; }
 
 private:
   void CreatePixelFormat() {
@@ -82,6 +86,9 @@ private:
   ::HWND hwnd_ = nullptr;
   ::HDC hdc_ = nullptr;
   ::HGLRC hglrc_ = nullptr;
+  std::size_t width_ = 0u;
+  std::size_t height_ = 0u;
+  std::vector<std::function<void()>> resizeListeners_;
 };
 
 class ISceneObject {

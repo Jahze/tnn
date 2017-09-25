@@ -12,6 +12,7 @@
 #include "finders.h"
 #include "graph.h"
 #include "graphics.h"
+#include "mnist.h"
 #include "neural_net.h"
 #include "threadpool.h"
 
@@ -116,11 +117,23 @@ int main() {
     kMsPerFrame,
     kMsPerGeneration * 5,
     glContext);
-#elif 1
+#elif 0
   chasers::BackPropSimulation population(
     kMsPerFrame,
     kMsPerGeneration * 15,
     glContext);
+#elif 1
+  mnist::Simulation population(
+    kMsPerFrame,
+    kMsPerGeneration,
+    glContext,
+    "data\\train-images.idx3-ubyte",
+    "data\\train-labels.idx1-ubyte",
+    "data\\t10k-images.idx3-ubyte",
+    "data\\t10k-labels.idx1-ubyte");
+
+  population.SetPostRenderGenerations(0);
+
 #elif 0
   backprop::Simulation population(
     kMsPerFrame,

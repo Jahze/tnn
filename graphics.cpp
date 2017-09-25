@@ -9,4 +9,10 @@ void OpenGLContext::Resize() {
 
   glLoadIdentity();
   gluOrtho2D(0, 0, rect.right, rect.bottom);
+
+  width_ = static_cast<std::size_t>(rect.right);
+  height_ = static_cast<std::size_t>(rect.bottom);
+
+  for (auto && listener : resizeListeners_)
+    listener();
 }

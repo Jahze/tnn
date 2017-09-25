@@ -8,6 +8,7 @@
 #include <random>
 #include <vector>
 #include "macros.h"
+#include "threadpool.h"
 
 template<typename T>
 class Aligned32ByteRAIIStorage {
@@ -118,7 +119,7 @@ public:
         const std::size_t batches = inputs / 4;
         for (std::size_t k = 0; k < batches; ++k) {
           __m256d weights = _mm256_load_pd(neurone.weights_.Get() + (k * 4));
-          __m256d values = _mm256_load_pd(lastOutputs + (k * 4));
+          __m256d values = _mm256_load_pd(lastOutputs->Get() + (k * 4));
           __m256d result = _mm256_mul_pd(weights, values);
           __m256d accum = _mm256_hadd_pd(result, result);
           activation += accum.m256d_f64[0];
@@ -129,7 +130,8 @@ public:
         const std::size_t left = inputs % 4;
         for (std::size_t k = 0; k < left; ++k) {
           activation +=
-            neurone.weights_[(batches * 4) + k] * lastOutputs[inputIndex++];
+            neurone.weights_[(batches * 4) + k] *
+            lastOutputs->Get()[inputIndex++];
         }
 #else
         for (std::size_t i = 0; i < inputs; ++i)
@@ -283,6 +285,112 @@ public:
     SetWeights(weights);
   }
 
+  void BackPropagationThreaded(const std::vector<double> & inputs,
+      std::function<double(double,std::size_t)> lossFunctionDerivative) {
+
+    Process(inputs);
+
+    std::vector<double> weights;
+    std::vector<std::vector<double>> layerWeights;
+
+    std::vector<double> last_dLoss_dOut;
+    std::vector<double> next_dLoss_dOut;
+    std::vector<double> last_dOut_dActivation;
+    std::vector<double> next_dOut_dActivation;
+
+    ThreadPool * pool = GetCpuSizedThreadPool();
+
+    for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
+      // Go backwards through the layers
+      const std::size_t current = hiddenLayers_ - i;
+
+      auto & layer = layers_[current];
+
+      TaskList tasks(*pool);
+      next_dLoss_dOut.resize(layer.size_);
+      next_dOut_dActivation.resize(layer.size_);
+      layerWeights.resize(layer.size_);
+
+      for (std::size_t j = 0; j < layer.size_; ++j) {
+        layerWeights[j].reserve(1 + layer.neurones_[layer.size_ - 1 - j].size_);
+
+        tasks.AddTask([this, &layer, &layerWeights, &next_dLoss_dOut,
+          &next_dOut_dActivation, &lossFunctionDerivative, j, current](){
+
+          const std::size_t neuroneIndex = layer.size_ - 1 - j;
+
+          auto & neurone = layer.neurones_[neuroneIndex];
+          const std::size_t inputs = neurone.size_;
+
+          const double LearningRate = 0.5;
+          const double out = buffers_[current + 1][neuroneIndex];
+
+          // dLoss/dWeight = dLoss/dOut * dOut/dActivation * dActivation/dWeight
+
+          const double dLoss_dOut = lossFunctionDerivative(out, neuroneIndex);
+          next_dLoss_dOut[j] = dLoss_dOut;
+
+          // derivative of activation function
+          const double dOut_dActivation = (out * (1.0 - out));
+          next_dOut_dActivation[j] = dOut_dActivation;
+
+          // derivative of neuron output function multiplied in final calc
+          const double dLoss_dActivation = dLoss_dOut * dOut_dActivation;
+
+          // put weights in backwards
+
+          layerWeights[j].push_back(neurone.weights_[inputs] -
+            (LearningRate * dLoss_dActivation * kThresholdBias));
+
+          for (std::size_t k = 0; k < inputs; ++k) {
+            const std::size_t weightIndex = inputs - k - 1;
+
+            const double divergence = LearningRate * dLoss_dActivation
+              * buffers_[current][weightIndex];
+
+            layerWeights[j].push_back(neurone.weights_[weightIndex] - divergence);
+          }
+        });
+      }
+
+      tasks.Run();
+
+      for (std::size_t j = 0; j < layer.size_; ++j) {
+        weights.insert(weights.end(), layerWeights[j].begin(),
+          layerWeights[j].end());
+      }
+
+      layerWeights.clear();
+
+      last_dLoss_dOut = std::move(next_dLoss_dOut);
+      std::reverse(last_dLoss_dOut.begin(), last_dLoss_dOut.end());
+      next_dLoss_dOut.clear();
+
+      last_dOut_dActivation = std::move(next_dOut_dActivation);
+      std::reverse(last_dOut_dActivation.begin(), last_dOut_dActivation.end());
+      next_dOut_dActivation.clear();
+
+      lossFunctionDerivative =
+        [this, &last_dLoss_dOut, &last_dOut_dActivation, current]
+        (double, std::size_t index) {
+
+          auto & layer = layers_[current];
+
+          double value = 0.0;
+
+          for (std::size_t i = 0; i < layer.size_; ++i) {
+            value += last_dLoss_dOut[i] * last_dOut_dActivation[i]
+              * layer.neurones_[i].weights_[index];
+          }
+
+          return value;
+        };
+    }
+
+    std::reverse(weights.begin(), weights.end());
+    SetWeights(weights);
+  }
+
 private:
   void Create() {
     CHECK(hiddenLayers_> 0);
@@ -404,7 +512,8 @@ public:
 
     if (timeSinceSpawn_.count() > msPerGenerationRender_) {
       // Run it for longer than shown to get to the end
-      const uint64_t extraTicks = (msPerGenerationRender_ * 10) / msPerFrame_;
+      const uint64_t extraTicks =
+        (msPerGenerationRender_ * postRenderGenerations_) / msPerFrame_;
       for (uint64_t i = 0; i < extraTicks; ++i)
         UpdateImpl(false, msPerFrame_);
 
@@ -413,6 +522,10 @@ public:
       timeSinceSpawn_ = std::chrono::milliseconds(0u);
       lastTick_ = std::chrono::high_resolution_clock::now();
     }
+  }
+
+  void SetPostRenderGenerations(std::size_t generations) {
+    postRenderGenerations_ = generations;
   }
 
 protected:
@@ -425,4 +538,5 @@ private:
   std::chrono::milliseconds timeSinceSpawn_;
   std::size_t msPerFrame_;
   std::size_t msPerGenerationRender_;
+  std::size_t postRenderGenerations_ = 10u;
 };

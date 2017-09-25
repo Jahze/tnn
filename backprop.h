@@ -4,7 +4,9 @@
 #include <random>
 #include "graph.h"
 #include "graphics.h"
+#include "moving_average.h"
 #include "neural_net.h"
+#include "timer.h"
 
 namespace backprop {
 
@@ -89,7 +91,8 @@ public:
              std::size_t trainingDataSize)
     : ::Simulation(msPerFrame, msPerGenerationRender)
     , context_(context), rng_(random_()), trainingData_(trainingDataSize)
-    , brain_(BrainInputs, BrainOutputs, HiddenLayers, NeuronesPerLayer) {}
+    , brain_(BrainInputs, BrainOutputs, HiddenLayers, NeuronesPerLayer)
+    , average_(10) {}
 
 protected:
   void StartImpl() {
@@ -142,6 +145,8 @@ protected:
   }
 
   void Train() {
+    Timer timer;
+
     double totalLoss = 0.0;
 
     for (auto && object : objects_) {
@@ -165,6 +170,11 @@ protected:
     for (auto && object : objects_)
       object->SetWeights(brain_.GetWeights());
 
+    average_.AddDataPoint(timer.ElapsedMicroseconds());
+
+    std::cout << "Rolling average generation time = "
+      << average_.Average() << "us\n";
+
     std::cout << "Generation " << ++generation_
       << " (loss=" << totalLoss << ")\n";
   }
@@ -184,6 +194,7 @@ private:
   std::random_device random_;
   std::mt19937 rng_;
   std::size_t generation_;
+  MovingAverage<uint64_t> average_;
 };
 
 }
