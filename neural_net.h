@@ -59,10 +59,14 @@ struct Neurone {
   Neurone(std::size_t size) : size_(size), weights_(size+1) {
     std::random_device rd;
     std::mt19937 generator(rd());
-    std::uniform_real_distribution<> distribution(-1.0, 1.0);
+    std::normal_distribution<> distribution(
+      0.0, sqrt(2.0/static_cast<double>(size)));
 
-    for (auto i = 0u; i < size_+1; ++i)
+    for (auto i = 0u; i < size_; ++i)
       weights_[i] = distribution(generator);
+
+    // Initialise bias to 0
+    weights_[size_] = 0.0;
   }
 };
 
@@ -322,7 +326,7 @@ public:
           auto & neurone = layer.neurones_[neuroneIndex];
           const std::size_t inputs = neurone.size_;
 
-          const double LearningRate = 0.5;
+          const double LearningRate = 1.0;
           const double out = buffers_[current + 1][neuroneIndex];
 
           // dLoss/dWeight = dLoss/dOut * dOut/dActivation * dActivation/dWeight
