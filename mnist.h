@@ -196,11 +196,12 @@ public:
     CHECK(trainingOutput_.Size() == trainingImages_.Size());
 
     const std::size_t dimension = trainingImages_.Width();
-    brain_.reset(new NeuralNet(dimension * dimension, 10, 2,
+    brain_.reset(new NeuralNet(dimension * dimension, 10, 1,
       //(dimension * dimension) / 4));
-      100));
+      300));
 
-    TrainModel();
+    for (int i = 0; i < 1; ++i)
+      TrainModel();
 
     classifyImages_ = mnist::ImageFile::Read(classifyFilename);
 

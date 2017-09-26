@@ -74,6 +74,8 @@ public:
     return true;
   }
 
+  std::size_t Size() const { return size_; }
+
 private:
   std::size_t size_;
   std::unique_ptr<WorkerThread[]> threads_;
