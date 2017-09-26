@@ -121,4 +121,30 @@ private:
   std::vector<std::function<void()>> tasks_;
 };
 
+class BatchTasks
+{
+public:
+  BatchTasks(ThreadPool & pool) : pool_(pool), tasks_(pool) {}
+
+  void CreateBatches(std::size_t size,
+    std::function<void(std::size_t, std::size_t)> job) {
+
+    const std::size_t batchSize = std::max(1ull, size / pool_.Size());
+
+    for (std::size_t i = 0; i < size; i += batchSize) {
+      const std::size_t start = i;
+      const std::size_t end = std::min(size, i + batchSize);
+      tasks_.AddTask([start, end, job]() { job(start, end); });
+    }
+  }
+
+  void Run() {
+    tasks_.Run();
+  }
+
+private:
+  ThreadPool & pool_;
+  TaskList tasks_;
+};
+
 ThreadPool * GetCpuSizedThreadPool();

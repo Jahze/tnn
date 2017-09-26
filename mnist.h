@@ -196,9 +196,7 @@ public:
     CHECK(trainingOutput_.Size() == trainingImages_.Size());
 
     const std::size_t dimension = trainingImages_.Width();
-    brain_.reset(new NeuralNet(dimension * dimension, 10, 1,
-      //(dimension * dimension) / 4));
-      300));
+    brain_.reset(new NeuralNet(dimension * dimension, 10, 1, 300));
 
     for (int i = 0; i < 1; ++i)
       TrainModel();

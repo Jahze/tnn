@@ -153,7 +153,7 @@ public:
     return { lastOutputs->Get(), lastOutputs->Get() + outputIndex };
   }
 
-  std::vector<double> ThreadedProcess(const std::vector<double> & inputs) {
+  std::vector<double> ProcessThreaded(const std::vector<double> & inputs) {
     CHECK(inputs.size() == inputs_);
 
     Aligned32ByteRAIIStorage<double> * lastOutputs = buffers_.data();
@@ -163,47 +163,40 @@ public:
 
     ThreadPool * pool = GetCpuSizedThreadPool();
 
-    std::size_t outputIndex = 0u;
-
     for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
-      outputIndex = 0u;
 
-      TaskList tasks(*pool);
       const std::size_t layerSize = layers_[i].size_;
-      const std::size_t batchSize = std::max(1ull, layerSize / pool->Size());
 
-      for (std::size_t j = 0; j < layerSize; j += batchSize) {
-        const std::size_t start = j;
-        const std::size_t end = std::min(layerSize, j + batchSize);
+      BatchTasks tasks(*pool);
+      tasks.CreateBatches(layerSize,
+        [this, &outputs, &lastOutputs, i]
+        (std::size_t start, std::size_t end) {
 
-        tasks.AddTask([this, &outputs, &lastOutputs,
-          i, start, end, outputIndex]() {
+        for (std::size_t k = start; k < end; ++k) {
+          std::size_t inputIndex = 0;
+          double activation = 0.0;
 
-          for (std::size_t k = start; k < end; ++k) {
-            std::size_t inputIndex = 0;
-            double activation = 0.0;
+          const auto & neurone = layers_[i].neurones_[k];
+          const std::size_t inputs = neurone.size_;
 
-            const auto & neurone = layers_[i].neurones_[k];
-            const std::size_t inputs = neurone.size_;
+          for (std::size_t i = 0; i < inputs; ++i)
+            activation += neurone.weights_[i] * lastOutputs->Get()[inputIndex++];
 
-            for (std::size_t i = 0; i < inputs; ++i)
-              activation += neurone.weights_[i] * lastOutputs->Get()[inputIndex++];
+          activation += kThresholdBias * neurone.weights_[inputs];
+          outputs->Get()[k] =
+            ActivationFunction(activation, kActivationResponse);
+        }
 
-            activation += kThresholdBias * neurone.weights_[inputs];
-            outputs->Get()[outputIndex + k - start] =
-              ActivationFunction(activation, kActivationResponse);
-          }
-        });
-
-        outputIndex += batchSize;
-      }
+      });
 
       tasks.Run();
 
       lastOutputs = outputs++;
     }
 
-    return { lastOutputs->Get(), lastOutputs->Get() + outputIndex };
+    const std::size_t length = layers_[hiddenLayers_].size_;
+
+    return { lastOutputs->Get(), lastOutputs->Get() + length };
   }
 
   std::vector<double> GetWeights() const {
@@ -294,9 +287,6 @@ public:
         const double dLoss_dActivation = dLoss_dOut * dOut_dActivation;
 
         // put weights in backwards
-
-        // TODO: should we pass-through?
-        //weights.push_back(neurone.weights_[inputs]);
         weights.push_back(neurone.weights_[inputs] -
           (LearningRate * dLoss_dActivation * kThresholdBias));
 
@@ -347,7 +337,7 @@ public:
   void BackPropagationThreaded(const std::vector<double> & inputs,
       std::function<double(double,std::size_t)> lossFunctionDerivative) {
 
-    ThreadedProcess(inputs);
+    ProcessThreaded(inputs);
 
     std::vector<double> weights;
     std::vector<std::vector<double>> layerWeights;
@@ -365,63 +355,55 @@ public:
 
       auto & layer = layers_[current];
 
-      TaskList tasks(*pool);
       next_dLoss_dOut.resize(layer.size_);
       next_dOut_dActivation.resize(layer.size_);
       layerWeights.resize(layer.size_);
 
-      const std::size_t layerSize = layer.size_;
-      const std::size_t batchSize = std::max(1ull, layerSize / pool->Size());
+      BatchTasks tasks(*pool);
+      tasks.CreateBatches(layer.size_, [this, &layer, &layerWeights, &next_dLoss_dOut,
+        &next_dOut_dActivation, &lossFunctionDerivative, current]
+        (std::size_t start, std::size_t end) {
 
-      for (std::size_t j = 0; j < layerSize; j += batchSize) {
-        const std::size_t start = j;
-        const std::size_t end = std::min(layerSize, j + batchSize);
+        for (std::size_t k = start; k < end; ++k) {
+          auto & thisLayerWeights = layerWeights[k];
+          const std::size_t neuroneIndex = layer.size_ - 1 - k;
+          auto & neurone = layer.neurones_[neuroneIndex];
+          const std::size_t inputs = neurone.size_;
 
-        tasks.AddTask([this, &layer, &layerWeights, &next_dLoss_dOut,
-          &next_dOut_dActivation, &lossFunctionDerivative, current, start, end]() {
-          for (std::size_t k = start; k < end; ++k) {
-            layerWeights[k].resize(1 + layer.neurones_[layer.size_ - 1 - k].size_);
+          thisLayerWeights.resize(inputs + 1);
 
-            auto & thisLayerWeights = layerWeights[k];
+          const double LearningRate = 1.0;
+          const double out = buffers_[current + 1][neuroneIndex];
 
-            const std::size_t neuroneIndex = layer.size_ - 1 - k;
+          // dLoss/dWeight = dLoss/dOut * dOut/dActivation * dActivation/dWeight
 
-            auto & neurone = layer.neurones_[neuroneIndex];
-            const std::size_t inputs = neurone.size_;
+          const double dLoss_dOut = lossFunctionDerivative(out, neuroneIndex);
+          next_dLoss_dOut[k] = dLoss_dOut;
 
-            const double LearningRate = 1.0;
-            const double out = buffers_[current + 1][neuroneIndex];
+          // derivative of activation function
+          const double dOut_dActivation = (out * (1.0 - out));
+          next_dOut_dActivation[k] = dOut_dActivation;
 
-            // dLoss/dWeight = dLoss/dOut * dOut/dActivation * dActivation/dWeight
+          // derivative of neuron output function multiplied in final calc
+          const double dLoss_dActivation = dLoss_dOut * dOut_dActivation;
 
-            const double dLoss_dOut = lossFunctionDerivative(out, neuroneIndex);
-            next_dLoss_dOut[k] = dLoss_dOut;
+          // put weights in backwards
+          auto weightsCursor = thisLayerWeights.data();
 
-            // derivative of activation function
-            const double dOut_dActivation = (out * (1.0 - out));
-            next_dOut_dActivation[k] = dOut_dActivation;
+          *weightsCursor++ = (neurone.weights_[inputs] -
+            (LearningRate * dLoss_dActivation * kThresholdBias));
 
-            // derivative of neuron output function multiplied in final calc
-            const double dLoss_dActivation = dLoss_dOut * dOut_dActivation;
+          for (std::size_t l = 0; l < inputs; ++l) {
+            const std::size_t weightIndex = inputs - l - 1;
 
-            // put weights in backwards
-            auto weightsCursor = thisLayerWeights.data();
+            const double divergence = LearningRate * dLoss_dActivation
+              * buffers_[current][weightIndex];
 
-            *weightsCursor++ = (neurone.weights_[inputs] -
-              (LearningRate * dLoss_dActivation * kThresholdBias));
-
-            for (std::size_t l = 0; l < inputs; ++l) {
-              const std::size_t weightIndex = inputs - l - 1;
-
-              const double divergence = LearningRate * dLoss_dActivation
-                * buffers_[current][weightIndex];
-
-              *weightsCursor++ =
-                neurone.weights_[weightIndex] - divergence;
-            }
+            *weightsCursor++ =
+              neurone.weights_[weightIndex] - divergence;
           }
-        });
-      }
+        }
+      });
 
       tasks.Run();
 
