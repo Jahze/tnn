@@ -237,6 +237,26 @@ public:
     CHECK(cursor == weights.data() + weights.size());
   }
 
+  void SetWeightsInReverse(const std::vector<double> & weights) {
+    auto cursor = weights.data() + weights.size();
+    auto layer = layers_.data();
+
+    for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
+      for (std::size_t j = 0, length = layer->size_; j < length; ++j) {
+        auto & neurone = layer->neurones_[j];
+        const std::size_t inputs = neurone.size_;
+
+        cursor -= (inputs + 1);
+
+        std::memcpy(neurone.weights_.Get(), cursor,
+          sizeof(double) * (inputs + 1));
+      }
+      ++layer;
+    }
+
+    CHECK(cursor == weights.data());
+  }
+
   double ActivationFunction(double activation, double response) const {
     return (1.0 / (1.0 + std::exp(-activation / response)));
   }
@@ -359,6 +379,8 @@ public:
       next_dOut_dActivation.resize(layer.size_);
       layerWeights.resize(layer.size_);
 
+      weights.reserve(weights.size() + layer.size_ * (layer.neurones_[0].size_ + 1));
+
       BatchTasks tasks(*pool);
       tasks.CreateBatches(layer.size_, [this, &layer, &layerWeights, &next_dLoss_dOut,
         &next_dOut_dActivation, &lossFunctionDerivative, current]
@@ -390,18 +412,16 @@ public:
           // put weights in backwards
           auto weightsCursor = thisLayerWeights.data();
 
-          *weightsCursor++ = (neurone.weights_[inputs] -
-            (LearningRate * dLoss_dActivation * kThresholdBias));
-
           for (std::size_t l = 0; l < inputs; ++l) {
-            const std::size_t weightIndex = inputs - l - 1;
-
             const double divergence = LearningRate * dLoss_dActivation
-              * buffers_[current][weightIndex];
+              * buffers_[current][l];
 
             *weightsCursor++ =
-              neurone.weights_[weightIndex] - divergence;
+              neurone.weights_[l] - divergence;
           }
+
+          *weightsCursor++ = (neurone.weights_[inputs] -
+            (LearningRate * dLoss_dActivation * kThresholdBias));
         }
       });
 
@@ -439,8 +459,8 @@ public:
         };
     }
 
-    std::reverse(weights.begin(), weights.end());
-    SetWeights(weights);
+    //std::reverse(weights.begin(), weights.end());
+    SetWeightsInReverse(weights);
   }
 
 private:
