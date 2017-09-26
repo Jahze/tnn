@@ -409,7 +409,6 @@ public:
           // derivative of neuron output function multiplied in final calc
           const double dLoss_dActivation = dLoss_dOut * dOut_dActivation;
 
-          // put weights in backwards
           auto weightsCursor = thisLayerWeights.data();
 
           for (std::size_t l = 0; l < inputs; ++l) {
