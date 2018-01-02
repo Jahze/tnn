@@ -458,7 +458,6 @@ public:
         };
     }
 
-    //std::reverse(weights.begin(), weights.end());
     SetWeightsInReverse(weights);
   }
 
