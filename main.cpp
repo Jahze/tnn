@@ -13,6 +13,7 @@
 #include "graph.h"
 #include "graphics.h"
 #include "mnist.h"
+#include "mnist_classifier.h"
 #include "neural_net.h"
 #include "threadpool.h"
 
@@ -121,7 +122,7 @@ int main() {
     kMsPerGeneration * 15,
     glContext);
 #elif 1
-  mnist::Simulation population(
+  mnist::Classifier population(
     kMsPerFrame,
     glContext,
     "data\\train-images.idx3-ubyte",

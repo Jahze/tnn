@@ -265,6 +265,10 @@ public:
     CHECK(cursor == weights.data());
   }
 
+  void SetLearningRate(double rate) {
+    learningRate_ = rate;
+  }
+
   double Sigmoid(double activation, double response) const {
     return (1.0 / (1.0 + std::exp(-activation / response)));
   }
@@ -315,7 +319,7 @@ public:
         auto & neurone = layer.neurones_[neuroneIndex];
         const std::size_t inputs = neurone.size_;
 
-        const double LearningRate = 0.5;
+        const double LearningRate = learningRate_;
         const double out = buffers_[current + 1][neuroneIndex];
 
         // dLoss/dWeight = dLoss/dOut * dOut/dActivation * dActivation/dWeight
@@ -420,8 +424,7 @@ public:
 
           thisLayerWeights.resize(inputs + 1);
 
-          //const double LearningRate = 0.1;
-          const double LearningRate = 1.0;
+          const double LearningRate = learningRate_;
           const double out = buffers_[current + 1][neuroneIndex];
 
           // dLoss/dWeight = dLoss/dOut * dOut/dActivation * dActivation/dWeight
@@ -522,4 +525,20 @@ private:
   std::vector<NeuroneLayer> layers_;
 
   std::vector<Aligned32ByteRAIIStorage<double>> buffers_;
+
+  double learningRate_ = 0.5;
 };
+
+template<typename F>
+void TrainNeuralNet(
+  NeuralNet * net,
+  F func,
+  double initialLearningRate,
+  std::size_t epochs)
+{
+  for (std::size_t i = 0; i < epochs; ++i) {
+    net->SetLearningRate(initialLearningRate);
+    func();
+    initialLearningRate /= 2.0;
+  }
+}
