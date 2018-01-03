@@ -128,6 +128,7 @@
     <ClCompile Include="graphics.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="neural_net.cpp" />
+    <ClCompile Include="simulation.cpp" />
     <ClCompile Include="threadpool.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -141,6 +142,7 @@
     <ClInclude Include="mnist.h" />
     <ClInclude Include="moving_average.h" />
     <ClInclude Include="neural_net.h" />
+    <ClInclude Include="simulation.h" />
     <ClInclude Include="threadpool.h" />
     <ClInclude Include="timer.h" />
   </ItemGroup>

@@ -6,6 +6,7 @@
 #include "graphics.h"
 #include "moving_average.h"
 #include "neural_net.h"
+#include "simulation.h"
 #include "timer.h"
 
 namespace backprop {

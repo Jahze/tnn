@@ -5,6 +5,7 @@
 #include "graph.h"
 #include "graphics.h"
 #include "neural_net.h"
+#include "simulation.h"
 
 namespace colours {
 

@@ -5,6 +5,7 @@
 #include <random>
 #include "graphics.h"
 #include "neural_net.h"
+#include "simulation.h"
 #include "timer.h"
 
 namespace chasers {

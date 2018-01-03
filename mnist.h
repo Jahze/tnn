@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 #include "macros.h"
+#include "neural_net.h"
+#include "simulation.h"
 
 namespace mnist {
 

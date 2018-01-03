@@ -4,6 +4,7 @@
 #include <random>
 #include "graphics.h"
 #include "neural_net.h"
+#include "simulation.h"
 
 namespace finders {
 
