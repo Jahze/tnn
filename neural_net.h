@@ -70,10 +70,16 @@ struct Neurone {
   }
 };
 
+enum class ActivationType {
+  Sigmoid,
+  Tanh,
+};
+
 struct NeuroneLayer {
   const std::size_t size_;
   // TODO: could be unique_ptr?
   std::vector<Neurone> neurones_;
+  ActivationType activationType_ = ActivationType::Sigmoid;
 
   NeuroneLayer(std::size_t size, std::size_t neuroneSize)
     : size_(size) {
@@ -143,8 +149,9 @@ public:
 #endif
 
         activation += kThresholdBias * neurone.weights_[inputs];
+
         outputs->Get()[outputIndex++] =
-          ActivationFunction(activation, kActivationResponse);
+          ActivationFunction(layers_[i].activationType_, activation);
       }
 
       lastOutputs = outputs++;
@@ -183,8 +190,9 @@ public:
             activation += neurone.weights_[i] * lastOutputs->Get()[inputIndex++];
 
           activation += kThresholdBias * neurone.weights_[inputs];
+
           outputs->Get()[k] =
-            ActivationFunction(activation, kActivationResponse);
+            ActivationFunction(layers_[i].activationType_, activation);
         }
 
       });
@@ -257,14 +265,30 @@ public:
     CHECK(cursor == weights.data());
   }
 
-  double ActivationFunction(double activation, double response) const {
+  double Sigmoid(double activation, double response) const {
     return (1.0 / (1.0 + std::exp(-activation / response)));
   }
 
-  double ActivationFunctionDerivative(double activation,
-      double response) const {
-    const double value = ActivationFunction(activation, response);
-    return value * (1 - value);
+  double Tanh(double activation) const {
+    return tanh(activation);
+  }
+
+  double ActivationFunction(ActivationType type, double activation) const {
+    switch (type) {
+    case ActivationType::Sigmoid:
+      return Sigmoid(activation, kActivationResponse);
+    case ActivationType::Tanh:
+      return Tanh(activation);
+    }
+  }
+
+  double ActivationFunctionDerivative(ActivationType type, double value) const {
+    switch (type) {
+    case ActivationType::Sigmoid:
+      return value * (1.0 - value);
+    case ActivationType::Tanh:
+      return 1.0 - (value * value);
+    }
   }
 
   void BackPropagation(const std::vector<double> & inputs,
@@ -300,7 +324,9 @@ public:
         next_dLoss_dOut.push_back(dLoss_dOut);
 
         // derivative of activation function
-        const double dOut_dActivation = (out * (1.0 - out));
+        const double dOut_dActivation =
+          ActivationFunctionDerivative(layer.activationType_, out);
+
         next_dOut_dActivation.push_back(dOut_dActivation);
 
         // derivative of neuron output function multiplied in final calc
@@ -394,6 +420,7 @@ public:
 
           thisLayerWeights.resize(inputs + 1);
 
+          //const double LearningRate = 0.1;
           const double LearningRate = 1.0;
           const double out = buffers_[current + 1][neuroneIndex];
 
@@ -403,7 +430,9 @@ public:
           next_dLoss_dOut[k] = dLoss_dOut;
 
           // derivative of activation function
-          const double dOut_dActivation = (out * (1.0 - out));
+          const double dOut_dActivation =
+            ActivationFunctionDerivative(layer.activationType_, out);
+
           next_dOut_dActivation[k] = dOut_dActivation;
 
           // derivative of neuron output function multiplied in final calc
@@ -415,8 +444,7 @@ public:
             const double divergence = LearningRate * dLoss_dActivation
               * buffers_[current][l];
 
-            *weightsCursor++ =
-              neurone.weights_[l] - divergence;
+            *weightsCursor++ = neurone.weights_[l] - divergence;
           }
 
           *weightsCursor++ = (neurone.weights_[inputs] -
@@ -466,9 +494,13 @@ private:
     CHECK(hiddenLayers_> 0);
 
     layers_.emplace_back(neuronesPerHiddenLayer_, inputs_);
+    // Need lower learning rate with tanh activation
+    //layers_.back().activationType_ = ActivationType::Tanh;
 
-    for (std::size_t i = 0, length = hiddenLayers_ - 1; i < length; ++i)
+    for (std::size_t i = 0, length = hiddenLayers_ - 1; i < length; ++i) {
       layers_.emplace_back(neuronesPerHiddenLayer_, neuronesPerHiddenLayer_);
+      //layers_.back().activationType_ = ActivationType::Tanh;
+    }
 
     layers_.emplace_back(outputs_, neuronesPerHiddenLayer_);
 

@@ -104,7 +104,7 @@ int main() {
     return FALSE;
   }
 
-#if 1
+#if 0
   finders::Simulation population(
     kMsPerFrame,
     kMsPerGeneration,
