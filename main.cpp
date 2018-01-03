@@ -104,8 +104,6 @@ int main() {
     return FALSE;
   }
 
-  std::cout << "Generation 0\n";
-
 #if 0
   finders::Simulation population(
     kMsPerFrame,
@@ -125,15 +123,11 @@ int main() {
 #elif 1
   mnist::Simulation population(
     kMsPerFrame,
-    kMsPerGeneration,
     glContext,
     "data\\train-images.idx3-ubyte",
     "data\\train-labels.idx1-ubyte",
     "data\\t10k-images.idx3-ubyte",
     "data\\t10k-labels.idx1-ubyte");
-
-  population.SetPostRenderGenerations(0);
-
 #elif 0
   backprop::Simulation population(
     kMsPerFrame,

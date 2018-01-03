@@ -101,13 +101,13 @@ private:
   NeuralNet brain_{ brainInputs, brainOutputs, 1, 8 };
 };
 
-class Simulation : public ::Simulation {
+class Simulation : public ::GenerationalSimulation {
 public:
   Simulation(std::size_t msPerFrame,
              std::size_t msPerGenerationRender,
              OpenGLContext & context,
              std::size_t goals)
-    : ::Simulation(msPerFrame, msPerGenerationRender)
+    : ::GenerationalSimulation(msPerFrame, msPerGenerationRender)
     , context_(context), rng_(random_()), goals_(goals) {}
 
   void GenerateInitialPopulation() {

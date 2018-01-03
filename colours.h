@@ -90,14 +90,14 @@ protected:
   NeuralNet brain_{ BrainInputs, BrainOutputs, HiddenLayers, NeuronesPerLayer };
 };
 
-class Simulation : public ::Simulation {
+class Simulation : public ::GenerationalSimulation {
 public:
   Simulation(std::size_t msPerFrame,
              std::size_t msPerGenerationRender,
              OpenGLContext & context,
              std::size_t size,
              std::size_t populationSize)
-    : ::Simulation(msPerFrame, msPerGenerationRender)
+    : ::GenerationalSimulation(msPerFrame, msPerGenerationRender)
     , context_(context), rng_(random_()), goals_(size) {
     for (std::size_t i = 0; i < populationSize; ++i) {
       brains_.emplace_back(BrainInputs, BrainOutputs,

@@ -175,12 +175,12 @@ private:
     HiddenLayers, NeuronesPerLayer };
 };
 
-class SimulationBase : public ::Simulation {
+class SimulationBase : public ::GenerationalSimulation {
 public:
   SimulationBase(std::size_t msPerFrame,
                 std::size_t msPerGenerationRender,
                 OpenGLContext & context)
-    : ::Simulation(msPerFrame, msPerGenerationRender)
+    : ::GenerationalSimulation(msPerFrame, msPerGenerationRender)
     , context_(context), rng_(random_()) {}
 
   void GenerateInitialPopulation() {

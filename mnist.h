@@ -172,16 +172,15 @@ protected:
   std::size_t size_;
 };
 
-class Simulation : public ::Simulation {
+class Simulation : public ::SimpleSimulation {
 public:
   Simulation(std::size_t msPerFrame,
-             std::size_t msPerGenerationRender,
              OpenGLContext & context,
              const std::string & trainingFilename,
              const std::string & trainingLabels,
              const std::string & classifyFilename,
              const std::string & classifyLabels)
-    : ::Simulation(msPerFrame, msPerGenerationRender)
+    : ::SimpleSimulation(msPerFrame)
     , context_(context) {
 
     scene_.reset(new Scene());
@@ -263,14 +262,14 @@ protected:
 
       classifyIndex_++;
     }
+    else if (classifyIndex_ == objects_.size()) {
+      recreateScene_ = true;
+    }
 
     scene_->Update(ms);
 
     if (render)
       scene_->Render(context_);
-  }
-
-  void Train() {
   }
 
   void TrainModel() {

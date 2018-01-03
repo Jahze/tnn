@@ -554,12 +554,48 @@ private:
   double mutationRate_ = kMutationRate;
 };
 
-class Simulation {
+class SimpleSimulation {
 public:
-  Simulation(std::size_t msPerFrame, std::size_t msPerGenerationRender)
+  SimpleSimulation(std::size_t msPerFrame)
+    : msPerFrame_(msPerFrame) {}
+
+  void Start() {
+    lastTick_ = std::chrono::high_resolution_clock::now();
+
+    StartImpl();
+  }
+
+  void Update(bool render) {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto elapsed = now - lastTick_;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed);
+
+    if (!render) ms = std::chrono::milliseconds(msPerFrame_ + 1);
+
+    if (ms.count() > msPerFrame_) {
+      UpdateImpl(render, ms.count());
+
+      lastTick_ = std::chrono::high_resolution_clock::now();
+    }
+  }
+
+protected:
+  virtual void StartImpl() = 0;
+  virtual void UpdateImpl(bool render, std::size_t ms) = 0;
+
+private:
+  std::chrono::time_point<std::chrono::steady_clock> lastTick_;
+  std::size_t msPerFrame_;
+};
+
+class GenerationalSimulation {
+public:
+  GenerationalSimulation(std::size_t msPerFrame, std::size_t msPerGenerationRender)
     : msPerFrame_(msPerFrame), msPerGenerationRender_(msPerGenerationRender) {}
 
   void Start() {
+    std::cout << "Generation 0\n";
+
     lastTick_ = std::chrono::high_resolution_clock::now();
     timeSinceSpawn_ = std::chrono::milliseconds(0u);
 
@@ -592,10 +628,6 @@ public:
       timeSinceSpawn_ = std::chrono::milliseconds(0u);
       lastTick_ = std::chrono::high_resolution_clock::now();
     }
-  }
-
-  void SetPostRenderGenerations(std::size_t generations) {
-    postRenderGenerations_ = generations;
   }
 
 protected:
