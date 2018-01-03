@@ -529,16 +529,41 @@ private:
   double learningRate_ = 0.5;
 };
 
-template<typename F>
+class HalvingLearningRate {
+public:
+  HalvingLearningRate(double learningRate)
+    : learningRate_(learningRate) {}
+
+  double LearningRate() const { return learningRate_; }
+  void Advance() { learningRate_ /= 2.0; }
+
+private:
+  double learningRate_;
+};
+
+class SteppingLearningRate {
+public:
+  SteppingLearningRate(double learningRate, double step)
+    : learningRate_(learningRate), step_(step) {}
+
+  double LearningRate() const { return learningRate_; }
+  void Advance() { learningRate_ -= step_; }
+
+private:
+  double learningRate_;
+  double step_;
+};
+
+template<typename F, typename L>
 void TrainNeuralNet(
   NeuralNet * net,
   F func,
-  double initialLearningRate,
+  L learningRate,
   std::size_t epochs)
 {
   for (std::size_t i = 0; i < epochs; ++i) {
-    net->SetLearningRate(initialLearningRate);
+    net->SetLearningRate(learningRate.LearningRate());
     func();
-    initialLearningRate /= 2.0;
+    learningRate.Advance();
   }
 }
