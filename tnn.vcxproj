@@ -136,6 +136,7 @@
     <ClInclude Include="colours.h" />
     <ClInclude Include="finders.h" />
     <ClInclude Include="chasers.h" />
+    <ClInclude Include="gan.h" />
     <ClInclude Include="graph.h" />
     <ClInclude Include="macros.h" />
     <ClInclude Include="graphics.h" />

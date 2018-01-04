@@ -168,6 +168,14 @@ public:
       data_[i * 3] = 200;
   }
 
+  void Confidence(double confidence) {
+    std::size_t pixels = size_ * size_;
+    for (std::size_t i = 0u; i < pixels; ++i) {
+      data_[i * 3 + 1] = std::max(data_[i * 3 + 1],
+        (uint8_t)(confidence * 200.0));
+    }
+  }
+
 protected:
   double position_[2];
   std::unique_ptr<uint8_t[]> data_;

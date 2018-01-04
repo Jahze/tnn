@@ -10,6 +10,7 @@
 #include "chasers.h"
 #include "colours.h"
 #include "finders.h"
+#include "gan.h"
 #include "graph.h"
 #include "graphics.h"
 #include "mnist.h"
@@ -121,7 +122,7 @@ int main() {
     kMsPerFrame,
     kMsPerGeneration * 15,
     glContext);
-#elif 1
+#elif 0
   mnist::Classifier population(
     kMsPerFrame,
     glContext,
@@ -129,6 +130,12 @@ int main() {
     "data\\train-labels.idx1-ubyte",
     "data\\t10k-images.idx3-ubyte",
     "data\\t10k-labels.idx1-ubyte");
+#elif 1
+  mnist::GAN population(
+    kMsPerFrame,
+    glContext,
+    "data\\train-images.idx3-ubyte",
+    "data\\t10k-images.idx3-ubyte");
 #elif 0
   backprop::Simulation population(
     kMsPerFrame,

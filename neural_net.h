@@ -492,6 +492,101 @@ public:
     SetWeightsInReverse(weights);
   }
 
+  std::function<double(double, std::size_t)> LastLossFunction(
+    const std::vector<double> & inputs,
+    std::function<double(double,std::size_t)> lossFunctionDerivative) {
+
+    ProcessThreaded(inputs);
+
+    std::vector<double> last_dLoss_dOut;
+    std::vector<double> next_dLoss_dOut;
+    std::vector<double> last_dOut_dActivation;
+    std::vector<double> next_dOut_dActivation;
+
+    ThreadPool * pool = GetCpuSizedThreadPool();
+
+    for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
+      // Go backwards through the layers
+      const std::size_t current = hiddenLayers_ - i;
+
+      auto & layer = layers_[current];
+
+      next_dLoss_dOut.resize(layer.size_);
+      next_dOut_dActivation.resize(layer.size_);
+
+      BatchTasks tasks(*pool);
+      tasks.CreateBatches(layer.size_, [this, &layer, &next_dLoss_dOut,
+        &next_dOut_dActivation, &lossFunctionDerivative, current]
+        (std::size_t start, std::size_t end) {
+
+        for (std::size_t k = start; k < end; ++k) {
+          const std::size_t neuroneIndex = layer.size_ - 1 - k;
+          auto & neurone = layer.neurones_[neuroneIndex];
+
+          const double out = buffers_[current + 1][neuroneIndex];
+
+          // dLoss/dWeight = dLoss/dOut * dOut/dActivation * dActivation/dWeight
+
+          const double dLoss_dOut = lossFunctionDerivative(out, neuroneIndex);
+          next_dLoss_dOut[k] = dLoss_dOut;
+
+          // derivative of activation function
+          const double dOut_dActivation =
+            ActivationFunctionDerivative(layer.activationType_, out);
+
+          next_dOut_dActivation[k] = dOut_dActivation;
+        }
+      });
+
+      tasks.Run();
+
+      last_dLoss_dOut = std::move(next_dLoss_dOut);
+      std::reverse(last_dLoss_dOut.begin(), last_dLoss_dOut.end());
+      next_dLoss_dOut.clear();
+
+      last_dOut_dActivation = std::move(next_dOut_dActivation);
+      std::reverse(last_dOut_dActivation.begin(), last_dOut_dActivation.end());
+      next_dOut_dActivation.clear();
+
+      if (current != 0) {
+        lossFunctionDerivative =
+          [this, &last_dLoss_dOut, &last_dOut_dActivation, current]
+          (double, std::size_t index) {
+
+            auto & layer = layers_[current];
+
+            double value = 0.0;
+
+            for (std::size_t i = 0; i < layer.size_; ++i) {
+              value += last_dLoss_dOut[i] * last_dOut_dActivation[i]
+                * layer.neurones_[i].weights_[index];
+            }
+
+            return value;
+          };
+      }
+      else {
+        lossFunctionDerivative =
+          [this, last_dLoss_dOut, last_dOut_dActivation]
+          (double, std::size_t index) {
+
+            auto & layer = layers_[0];
+
+            double value = 0.0;
+
+            for (std::size_t i = 0; i < layer.size_; ++i) {
+              value += last_dLoss_dOut[i] * last_dOut_dActivation[i]
+                * layer.neurones_[i].weights_[index];
+            }
+
+            return value;
+          };
+      }
+    }
+
+    return lossFunctionDerivative;
+  }
+
 private:
   void Create() {
     CHECK(hiddenLayers_> 0);
