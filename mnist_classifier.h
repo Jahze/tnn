@@ -124,7 +124,6 @@ protected:
       Timer totalTrainingTimer;
       Timer trainingTimer;
 
-      //for (std::size_t i = 0u; i < 5000u; ++i, ++progress) {
       for (std::size_t i = 0u; i < length; ++i, ++progress) {
         const auto & normalisedImage = normalisedImages[i];
 
@@ -156,8 +155,7 @@ protected:
 
       std::cout << "\rTraining.....done\n";
 
-      std::cout << "Took " << percent << 
-        totalTrainingTimer.ElapsedSeconds() << "s\n";
+      std::cout << "Took " << totalTrainingTimer.ElapsedSeconds() << "s\n";
     };
 
     TrainNeuralNet(brain_.get(), TrainFunction,
