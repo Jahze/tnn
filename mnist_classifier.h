@@ -121,8 +121,10 @@ protected:
       std::size_t progress = 0u;
       std::size_t percent = 0u;
 
+      Timer totalTrainingTimer;
       Timer trainingTimer;
 
+      //for (std::size_t i = 0u; i < 5000u; ++i, ++progress) {
       for (std::size_t i = 0u; i < length; ++i, ++progress) {
         const auto & normalisedImage = normalisedImages[i];
 
@@ -135,6 +137,11 @@ protected:
         auto lossFunction = [&outputs](double value, std::size_t idx) {
           return -(outputs[idx] - value);
         };
+        // This is cross-entropy? (derivative might be incorrect)
+        // But if ideal value is 0 it says there is no loss?
+        //auto lossFunction = [&outputs](double value, std::size_t idx) {
+        //  return -(value/outputs[idx]);
+        //};
 
         brain_->BackPropagationThreaded(inputs, lossFunction);
 
@@ -148,10 +155,13 @@ protected:
       }
 
       std::cout << "\rTraining.....done\n";
+
+      std::cout << "Took " << percent << 
+        totalTrainingTimer.ElapsedSeconds() << "s\n";
     };
 
     TrainNeuralNet(brain_.get(), TrainFunction,
-      SteppingLearningRate{0.5, 0.1}, 3);
+      SteppingLearningRate{0.5, 0.1}, 1);
   }
 
   void Classify() {
