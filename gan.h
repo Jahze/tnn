@@ -117,7 +117,7 @@ protected:
 
         // TODO: take the loss function before backpropping this case as not
         // a sample -> is this right?
-        auto asIfNotGenerated = brain_->LastLossFunction(outputs, lossFunction);
+        //auto asIfNotGenerated = brain_->LastLossFunction(outputs, lossFunction);
 
         // Want a value of 0.0 (because it's not from the training set)
         auto generatedLossFunction = [](double value, std::size_t idx) {
@@ -126,7 +126,7 @@ protected:
 
         brain_->BackPropagationThreaded(outputs, generatedLossFunction);
 
-        generator_->BackPropagationThreaded(generatorInputs, asIfNotGenerated);
+        //generator_->BackPropagationThreaded(generatorInputs, asIfNotGenerated);
 
         if (progress > one_hundredth) {
           progress = 0u;
