@@ -423,6 +423,21 @@ public:
     BackPropagationThreaded(loss);
   }
 
+  void BackPropagationThreaded(const std::vector<double> & inputs,
+      Aligned32ByteRAIIStorage<double> & idealOutputs) {
+
+    std::copy(inputs.cbegin(), inputs.cend(), buffers_[0].Get());
+
+    const auto & outputs = ProcessThreaded(inputs);
+
+    const std::size_t length = outputs.size();
+
+    for (std::size_t i = 0u; i < length; ++i)
+      idealOutputs[i] = -(idealOutputs[i] - outputs[i]);
+
+    BackPropagationThreaded(idealOutputs);
+  }
+
   void BackPropagationThreaded(const Aligned32ByteRAIIStorage<double> & lossIn) {
     Aligned32ByteRAIIStorage<double> next_dLoss_dActivation;
     Aligned32ByteRAIIStorage<double> lastLoss;
