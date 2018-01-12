@@ -140,6 +140,7 @@
     <ClInclude Include="graph.h" />
     <ClInclude Include="macros.h" />
     <ClInclude Include="graphics.h" />
+    <ClInclude Include="matrix.h" />
     <ClInclude Include="mnist.h" />
     <ClInclude Include="mnist_classifier.h" />
     <ClInclude Include="moving_average.h" />

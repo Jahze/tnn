@@ -8,93 +8,8 @@
 #include <random>
 #include <vector>
 #include "macros.h"
+#include "matrix.h"
 #include "threadpool.h"
-
-template<typename T>
-inline std::size_t AlignTo32Bytes(std::size_t size) {
-  return size + (32 - ((size * sizeof(T)) % 32)) / sizeof(T);
-}
-
-// This storage is aligned on a 32 byte boundary as well as being a multiple of
-// 32 bytes. This means it can be used in AVX instructions and always fill an
-// entire register, making batching easier by not having to deal with a last
-// batch that doesn't fill a register.
-
-template<typename T>
-class Aligned32ByteRAIIStorage {
-public:
-  Aligned32ByteRAIIStorage() : storage_(nullptr), size_(0), raw_(nullptr) {}
-
-  Aligned32ByteRAIIStorage(std::size_t size) {
-    size_ = AlignTo32Bytes<T>(size);
-    AlignedNew();
-  }
-
-  ~Aligned32ByteRAIIStorage() { delete [] raw_; }
-
-  Aligned32ByteRAIIStorage(const Aligned32ByteRAIIStorage<T> &) = delete;
-  Aligned32ByteRAIIStorage& operator=(
-    const Aligned32ByteRAIIStorage<T> &) = delete;
-
-  Aligned32ByteRAIIStorage(Aligned32ByteRAIIStorage && rhs) {
-    storage_ = rhs.storage_;
-    raw_ = rhs.raw_;
-    rhs.storage_ = nullptr;
-    rhs.raw_ = nullptr;
-  }
-
-  Aligned32ByteRAIIStorage& operator=(Aligned32ByteRAIIStorage && rhs) {
-    storage_ = rhs.storage_;
-    raw_ = rhs.raw_;
-    rhs.storage_ = nullptr;
-    rhs.raw_ = nullptr;
-  }
-
-  T & operator[](std::size_t i) { return storage_[i]; }
-  T operator[](std::size_t i) const { return storage_[i]; }
-  T * Get() { return storage_; }
-  const T * Get() const { return storage_; }
-
-  void Reset(std::size_t size) {
-    // Don't resize unless we need more space
-    if (size < size_) return;
-
-    delete [] raw_;
-
-    size_ = AlignTo32Bytes<T>(size);
-    AlignedNew();
-  }
-
-private:
-  void AlignedNew() {
-    const std::size_t elements = size_ + (32 / sizeof(T));
-    raw_ = new T[elements];
-    storage_ = raw_;
-    while (reinterpret_cast<uint64_t>(storage_) % 32 != 0)
-      storage_++;
-  }
-
-private:
-  T * raw_;
-  T * storage_;
-  std::size_t size_;
-};
-
-inline void SIMDMultiply(
-  const double * lhs,
-  const double * rhs,
-  Aligned32ByteRAIIStorage<double> & dest,
-  std::size_t size) {
-
-  const std::size_t batches = AlignTo32Bytes<double>(size) / 4;
-  for (std::size_t k = 0; k < batches; ++k) {
-    __m256d l = _mm256_load_pd(lhs + (k * 4));
-    __m256d r = _mm256_load_pd(rhs + (k * 4));
-    __m256d result = _mm256_mul_pd(l, r);
-    std::memcpy(dest.Get() + (k * 4),
-      result.m256d_f64, sizeof(double) * 4);
-  }
-}
 
 enum class ActivationType {
   Sigmoid,
@@ -123,8 +38,8 @@ struct NeuroneLayer {
   const std::size_t size_;
   const std::size_t neuroneSize_;
   const std::size_t weightsPerNeurone_;
-  Aligned32ByteRAIIStorage<double> weights_;
-  Aligned32ByteRAIIStorage<double> transpose_;
+  AlignedMatrix weights_;
+  AlignedMatrix transpose_;
   Aligned32ByteRAIIStorage<double> outputs_;
   ActivationType activationType_ = ActivationType::Sigmoid;
 
@@ -132,11 +47,10 @@ struct NeuroneLayer {
     : size_(size), neuroneSize_(neuroneSize)
     , weightsPerNeurone_(neuroneSize_ + 1) {
     // One extra for bias
-    const std::size_t numWeights = size_ * weightsPerNeurone_;
 
     outputs_.Reset(size_ + 1);
-    weights_.Reset(numWeights);
-    transpose_.Reset(numWeights);
+    weights_.Reset(size, weightsPerNeurone_);
+    transpose_.Reset(size, weightsPerNeurone_);
 
     std::random_device rd;
     std::mt19937 generator(rd());
@@ -147,73 +61,42 @@ struct NeuroneLayer {
       const std::size_t base = i * weightsPerNeurone_;
 
       for (std::size_t j = 0; j < neuroneSize_; ++j)
-        weights_[base + j] = distribution(generator);
+        weights_.Value(i, j) = distribution(generator);
 
       // Initialise bias to 0
-      weights_[base + neuroneSize] = 0.0;
+      weights_.Value(i, neuroneSize) = 0.0;
     }
   }
 
   Neurone Neurones(std::size_t i) {
-    return weights_.Get() + (i * weightsPerNeurone_);
+    return weights_.Row(i);
   }
 
   double Weights(std::size_t i, std::size_t j) const {
-    const double * ptr = weights_.Get() + (i * weightsPerNeurone_);
-    return ptr[j];
+    return weights_.Value(i, j);
   }
 
   const Aligned32ByteRAIIStorage<double> & Transpose() {
-    for (std::size_t i = 0u; i < size_; ++i) {
-      for (std::size_t j = 0u; j < weightsPerNeurone_; ++j) {
-        transpose_[(j * size_) + i] = Weights(i, j);
-      }
-    }
-    return transpose_;
+    weights_.Transpose(transpose_);
+    return transpose_.values_;
   }
 
   const static double kThresholdBias;
 
   void Process(Aligned32ByteRAIIStorage<double> & inputs) {
-    std::size_t weightsIndex = 0;
+    weights_.Multiply(inputs, outputs_);
 
-    for (std::size_t i = 0u; i < size_; ++i) {
-      outputs_[i] = 0.0;
-
-      for (std::size_t j = 0u; j < weightsPerNeurone_; ++j)
-        outputs_[i] += inputs[j] * weights_[weightsIndex++];
-
+    for (std::size_t i = 0u; i < size_; ++i)
       outputs_[i] = ActivationFunction(activationType_, outputs_[i]);
-    }
 
     outputs_[size_] = kThresholdBias;
   }
 
   void ProcessThreaded(Aligned32ByteRAIIStorage<double> & inputs) {
-    ThreadPool * pool = GetCpuSizedThreadPool();
+    weights_.MultiplyThreaded(inputs.Get(), outputs_.Get());
 
-    BatchTasks tasks(*pool);
-    tasks.CreateBatches(size_,
-      [this, &inputs](std::size_t start, std::size_t end) {
-
-      for (std::size_t i = start; i < end; ++i) {
-        __m256d result = _mm256_setzero_pd();
-
-        const std::size_t batches = AlignTo32Bytes<double>(weightsPerNeurone_) / 4;
-        for (std::size_t j = 0u; j < batches; ++j) {
-          result = _mm256_add_pd(result, _mm256_mul_pd(
-            _mm256_load_pd(inputs.Get() + (j * 4)),
-            _mm256_load_pd(weights_.Get() + (i * weightsPerNeurone_) + (j * 4))));
-        }
-
-        result = _mm256_hadd_pd(result, result);
-
-        outputs_[i] = ActivationFunction(activationType_,
-          result.m256d_f64[0] + result.m256d_f64[2]);
-      }
-    });
-
-    tasks.Run();
+    for (std::size_t i = 0u; i < size_; ++i)
+      outputs_[i] = ActivationFunction(activationType_, outputs_[i]);
 
     outputs_[size_] = kThresholdBias;
   }
