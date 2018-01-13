@@ -142,14 +142,14 @@ struct AlignedMatrix {
     }
   }
 
-  void MultiplyThreaded(double * inputs, double * outputs) {
+  void MultiplyThreaded(double * inputs, double * outputs) const {
     ThreadPool * pool = GetCpuSizedThreadPool();
 
     BatchTasks tasks(*pool);
     tasks.CreateBatches(rows_,
       [this, inputs, outputs](std::size_t start, std::size_t end) {
 
-      double * values = Row(start);
+      const double * values = Row(start);
 
       for (std::size_t i = start; i < end; ++i) {
         __m256d result = _mm256_setzero_pd();
