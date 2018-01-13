@@ -321,8 +321,24 @@ public:
     BackPropagationThreaded(idealOutputs);
   }
 
+  void BackPropagationThreaded2(const std::vector<double> & inputs,
+      Aligned32ByteRAIIStorage<double> & idealOutputs) {
+
+    const auto & outputs = ProcessThreaded(inputs);
+
+    const std::size_t length = outputs.size();
+
+    // cross-entropy loss
+    // https://www.ics.uci.edu/~pjsadows/notes.pdf
+    for (std::size_t i = 0u; i < length; ++i)
+      idealOutputs[i] =
+        (outputs[i] - idealOutputs[i]) / (outputs[i] * (1.0 - outputs[i]));
+
+    BackPropagationThreaded(idealOutputs);
+  }
+
   void BackPropagationThreaded(const Aligned32ByteRAIIStorage<double> & lossIn) {
-    Aligned32ByteRAIIStorage<double> next_dLoss_dActivation;
+    Aligned32ByteRAIIStorage<double> dLoss_dActivation;
     Aligned32ByteRAIIStorage<double> lastLoss;
 
     // dLoss/dOut
@@ -336,39 +352,27 @@ public:
 
       auto & layer = layers_[current];
 
-      next_dLoss_dActivation.Reset(layer.size_);
+      dLoss_dActivation.Reset(layer.size_);
 
       for (std::size_t k = 0u; k < layer.size_; ++k) {
         const double out = layer.outputs_[k];
 
         // dOut/dActivation
-        next_dLoss_dActivation[k] =
+        dLoss_dActivation[k] =
           ActivationFunctionDerivative(layer.activationType_, out);
       }
 
-      SIMDMultiply(loss, next_dLoss_dActivation.Get(),
-        next_dLoss_dActivation, layer.size_);
+      SIMDMultiply(loss, dLoss_dActivation.Get(),
+        dLoss_dActivation, layer.size_);
 
       if (current > 0u) {
-        const std::size_t layerSize = layers_[current].size_;
-        const std::size_t prevLayerSize = layers_[current - 1].size_;
-
-        lastLoss.Reset(prevLayerSize);
-        std::memset(lastLoss.Get(), 0, prevLayerSize * sizeof(double));
-
-        for (std::size_t i = 0u; i < prevLayerSize; ++i) {
-          for (std::size_t j = 0u; j < layerSize; ++j) {
-            lastLoss[i] += next_dLoss_dActivation[j]
-              * layers_[current].Neurones(j).Weights(i);
-          }
-        }
-
+        CalculateLoss(current, dLoss_dActivation, lastLoss);
         loss = lastLoss.Get();
       }
 
       BatchTasks tasks2(*pool);
       tasks2.CreateBatches(layer.size_, [this, &layer,
-        &next_dLoss_dActivation, current]
+        &dLoss_dActivation, current]
         (std::size_t start, std::size_t end) {
 
         for (std::size_t k = start; k < end; ++k) {
@@ -381,7 +385,7 @@ public:
 
           const double * dActivation_dWeights = layers_[current].inputs_;
 
-          __m256d scalar = _mm256_set1_pd(LearningRate * next_dLoss_dActivation[k]);
+          __m256d scalar = _mm256_set1_pd(LearningRate * dLoss_dActivation[k]);
 
           const std::size_t batches = AlignTo32Bytes<double>(inputs) / 4;
           for (std::size_t l = 0; l < batches; ++l) {
@@ -399,7 +403,25 @@ public:
     }
   }
 
-  void LastLossFunction(const std::vector<double> & inputs,
+  void CalculateLoss(std::size_t layer,
+      Aligned32ByteRAIIStorage<double> & dLoss_dActivation,
+      Aligned32ByteRAIIStorage<double> & loss) {
+
+    const std::size_t layerSize = layers_[layer].size_;
+    const std::size_t prevLayerSize = layers_[layer].neuroneSize_;
+
+    loss.Reset(prevLayerSize);
+    std::memset(loss.Get(), 0, prevLayerSize * sizeof(double));
+
+    for (std::size_t i = 0u; i < prevLayerSize; ++i) {
+      for (std::size_t j = 0u; j < layerSize; ++j) {
+        loss[i] += dLoss_dActivation[j]
+          * layers_[layer].Neurones(j).Weights(i);
+      }
+    }
+  }
+
+  void LastLoss(const std::vector<double> & inputs,
       Aligned32ByteRAIIStorage<double> & idealOutputs,
       Aligned32ByteRAIIStorage<double> & lastLoss) {
 
@@ -410,13 +432,13 @@ public:
     for (std::size_t i = 0u; i < length; ++i)
       idealOutputs[i] = -(idealOutputs[i] - outputs[i]);
 
-    LastLossFunction(idealOutputs, lastLoss);
+    LastLoss(idealOutputs, lastLoss);
   }
 
-  void LastLossFunction(const Aligned32ByteRAIIStorage<double> & lossIn,
+  void LastLoss(const Aligned32ByteRAIIStorage<double> & lossIn,
       Aligned32ByteRAIIStorage<double> & lastLoss) {
 
-    Aligned32ByteRAIIStorage<double> next_dLoss_dActivation;
+    Aligned32ByteRAIIStorage<double> dLoss_dActivation;
 
     // dLoss/dOut
     const double * loss = lossIn.Get();
@@ -429,132 +451,24 @@ public:
 
       auto & layer = layers_[current];
 
-      next_dLoss_dActivation.Reset(layer.size_);
+      dLoss_dActivation.Reset(layer.size_);
 
       for (std::size_t k = 0u; k < layer.size_; ++k) {
         const double out = layer.outputs_[k];
 
         // dOut/dActivation
-        next_dLoss_dActivation[k] =
+        dLoss_dActivation[k] =
           ActivationFunctionDerivative(layer.activationType_, out);
       }
 
-      SIMDMultiply(loss, next_dLoss_dActivation.Get(),
-        next_dLoss_dActivation, layer.size_);
+      SIMDMultiply(loss, dLoss_dActivation.Get(),
+        dLoss_dActivation, layer.size_);
 
-      if (current > 0u) {
-        const std::size_t layerSize = layers_[current].size_;
-        const std::size_t prevLayerSize = layers_[current - 1].size_;
+      CalculateLoss(current, dLoss_dActivation, lastLoss);
 
-        lastLoss.Reset(prevLayerSize);
-        std::memset(lastLoss.Get(), 0, prevLayerSize * sizeof(double));
-
-        for (std::size_t i = 0u; i < prevLayerSize; ++i) {
-          for (std::size_t j = 0u; j < layerSize; ++j) {
-            lastLoss[i] += next_dLoss_dActivation[j]
-              * layers_[current].Neurones(j).Weights(i);
-          }
-        }
-
-        loss = lastLoss.Get();
-      }
+      loss = lastLoss.Get();
     }
   }
-
-  //std::function<double(double, std::size_t)> LastLossFunction(
-  //  const std::vector<double> & inputs,
-  //  std::function<double(double,std::size_t)> lossFunctionDerivative) {
-
-  //  ProcessThreaded(inputs);
-
-  //  std::vector<double> last_dLoss_dOut;
-  //  std::vector<double> next_dLoss_dOut;
-  //  std::vector<double> last_dOut_dActivation;
-  //  std::vector<double> next_dOut_dActivation;
-
-  //  ThreadPool * pool = GetCpuSizedThreadPool();
-
-  //  for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
-  //    // Go backwards through the layers
-  //    const std::size_t current = hiddenLayers_ - i;
-
-  //    auto & layer = layers_[current];
-
-  //    next_dLoss_dOut.resize(layer.size_);
-  //    next_dOut_dActivation.resize(layer.size_);
-
-  //    BatchTasks tasks(*pool);
-  //    tasks.CreateBatches(layer.size_, [this, &layer, &next_dLoss_dOut,
-  //      &next_dOut_dActivation, &lossFunctionDerivative, current]
-  //      (std::size_t start, std::size_t end) {
-
-  //      for (std::size_t k = start; k < end; ++k) {
-  //        const std::size_t neuroneIndex = layer.size_ - 1 - k;
-  //        auto & neurone = layer.neurones_[neuroneIndex];
-
-  //        const double out = buffers_[current + 1][neuroneIndex];
-
-  //        // dLoss/dWeight = dLoss/dOut * dOut/dActivation * dActivation/dWeight
-
-  //        const double dLoss_dOut = lossFunctionDerivative(out, neuroneIndex);
-  //        next_dLoss_dOut[k] = dLoss_dOut;
-
-  //        // derivative of activation function
-  //        const double dOut_dActivation =
-  //          ActivationFunctionDerivative(layer.activationType_, out);
-
-  //        next_dOut_dActivation[k] = dOut_dActivation;
-  //      }
-  //    });
-
-  //    tasks.Run();
-
-  //    last_dLoss_dOut = std::move(next_dLoss_dOut);
-  //    std::reverse(last_dLoss_dOut.begin(), last_dLoss_dOut.end());
-  //    next_dLoss_dOut.clear();
-
-  //    last_dOut_dActivation = std::move(next_dOut_dActivation);
-  //    std::reverse(last_dOut_dActivation.begin(), last_dOut_dActivation.end());
-  //    next_dOut_dActivation.clear();
-
-  //    if (current != 0) {
-  //      lossFunctionDerivative =
-  //        [this, &last_dLoss_dOut, &last_dOut_dActivation, current]
-  //        (double, std::size_t index) {
-
-  //          auto & layer = layers_[current];
-
-  //          double value = 0.0;
-
-  //          for (std::size_t i = 0; i < layer.size_; ++i) {
-  //            value += last_dLoss_dOut[i] * last_dOut_dActivation[i]
-  //              * layer.neurones_[i].weights_[index];
-  //          }
-
-  //          return value;
-  //        };
-  //    }
-  //    else {
-  //      lossFunctionDerivative =
-  //        [this, last_dLoss_dOut, last_dOut_dActivation]
-  //        (double, std::size_t index) {
-
-  //          auto & layer = layers_[0];
-
-  //          double value = 0.0;
-
-  //          for (std::size_t i = 0; i < layer.size_; ++i) {
-  //            value += last_dLoss_dOut[i] * last_dOut_dActivation[i]
-  //              * layer.neurones_[i].weights_[index];
-  //          }
-
-  //          return value;
-  //        };
-  //    }
-  //  }
-
-  //  return lossFunctionDerivative;
-  //}
 
 private:
   void Create() {
