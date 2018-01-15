@@ -52,6 +52,7 @@ public:
 
   std::size_t Width() const { return width_; }
   std::size_t Height() const { return height_; }
+  ::HWND Handle() { return hwnd_; }
 
 private:
   void CreatePixelFormat() {

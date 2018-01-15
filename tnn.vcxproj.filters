@@ -27,9 +27,6 @@
     <ClCompile Include="threadpool.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="graph.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="simulation.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -83,5 +80,14 @@
     <ClInclude Include="matrix.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="gan2.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="crossentropy.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="tnn.natvis" />
   </ItemGroup>
 </Project>

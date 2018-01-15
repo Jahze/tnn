@@ -9,8 +9,10 @@
 #include "backprop.h"
 #include "chasers.h"
 #include "colours.h"
+#include "crossentropy.h"
 #include "finders.h"
 #include "gan.h"
+#include "gan2.h"
 #include "graph.h"
 #include "graphics.h"
 #include "mnist.h"
@@ -135,7 +137,21 @@ int main() {
     kMsPerFrame,
     glContext,
     "data\\train-images.idx3-ubyte",
-    "data\\t10k-images.idx3-ubyte");
+    "data\\train-labels.idx1-ubyte",
+    "data\\t10k-images.idx3-ubyte",
+    "data\\t10k-labels.idx1-ubyte");
+#elif 0
+  mnist::GAN2 population(
+    kMsPerFrame,
+    glContext,
+    "data\\train-images.idx3-ubyte",
+    "data\\train-labels.idx1-ubyte",
+    "data\\t10k-images.idx3-ubyte",
+    "data\\t10k-labels.idx1-ubyte");
+#elif 1
+  CrossEntropy population(
+    kMsPerFrame,
+    glContext);
 #elif 0
   backprop::Simulation population(
     kMsPerFrame,
@@ -153,15 +169,6 @@ int main() {
 
   ::ShowWindow(hwnd, SW_SHOWNORMAL);
   ::UpdateWindow(hwnd);
-
-  //Graph::Limits limits = {-1., 1., 0, 1.};
-  //Graph graph("graph", limits);
-
-  //Graph::Series series = {
-  //  { {0.0, 0.0}, {1.0, 1.0} }
-  //};
-
-  //graph.AddSeries(series);
 
   ::MSG msg;
 

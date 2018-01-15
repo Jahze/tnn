@@ -71,27 +71,15 @@ public:
 
   struct Series {
     std::vector<Point> points;
+    int r = 255;
+    int g = 0;
+    int b = 0;
   };
 
-  Graph(const std::string & name, const Limits & limits)
-    : name_(name), limits_(limits) {
-    hwnd_ = ::CreateWindow(WindowClass(),
-      name.c_str(),
-      WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT,
-      CW_USEDEFAULT,
-      200,
-      200,
-      NULL,
-      NULL,
-      ::GetModuleHandle(NULL),
-      NULL);
+  Graph(::HWND hwnd, const Limits & limits)
+    : hwnd_(hwnd), limits_(limits) {
 
     CHECK(hwnd_);
-
-    ::SetWindowLongPtr(hwnd_, GWLP_USERDATA, (LONG_PTR)this);
-    ::ShowWindow(hwnd_, SW_SHOWNORMAL);
-    ::UpdateWindow(hwnd_);
   }
 
   void AddSeries(const Series & series) {
@@ -130,7 +118,7 @@ public:
 
       auto point = ToScreen(rect, series.points[0]);
 
-      Pen pen(hwnd_, 255, 0, 0);
+      Pen pen(hwnd_, series.r, series.g, series.b);
       pen.MoveTo(point.first, point.second);
 
       const auto size = series.points.size();
@@ -141,9 +129,11 @@ public:
     }
   }
 
-private:
-  static const char * WindowClass();
+  void Clear() {
+    series_.clear();
+  }
 
+private:
   const static int AxisBorderSize = 20;
 
   void DrawLabels(::HDC hdc, const ::RECT & rect) {
@@ -174,9 +164,23 @@ private:
   void DrawAxesLines(::HDC hdc, const ::RECT & rect) {
     Pen pen(hwnd_, 0, 0, 0);
 
-    pen.MoveTo(AxisBorderSize, 5);
-    pen.LineTo(AxisBorderSize, rect.bottom - AxisBorderSize);
-    pen.LineTo(rect.right - 5, rect.bottom - AxisBorderSize);
+    double total = limits_.xmax - limits_.xmin;
+    double ratio = -limits_.xmin / total;
+    int left = std::max(AxisBorderSize,
+      std::min((int)(rect.right - 5),
+        (int)(AxisBorderSize + (rect.right - AxisBorderSize - 5)*ratio)));
+
+    pen.MoveTo(left, 5);
+    pen.LineTo(left, rect.bottom - AxisBorderSize);
+
+    total = limits_.ymax - limits_.ymin;
+    ratio = 1.0 + (limits_.ymin / total);
+    int bottom = std::max(5,
+      std::min((int)(rect.bottom - AxisBorderSize),
+        (int)(5 + (rect.bottom - AxisBorderSize - 5)*ratio)));
+
+    pen.MoveTo(AxisBorderSize, bottom);
+    pen.LineTo(rect.right - 5, bottom);
   }
 
   std::pair<int,int> ToScreen(const ::RECT & rect, const Point & point) {

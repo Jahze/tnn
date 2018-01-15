@@ -124,7 +124,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="graph.cpp" />
     <ClCompile Include="graphics.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="neural_net.cpp" />
@@ -137,6 +136,8 @@
     <ClInclude Include="finders.h" />
     <ClInclude Include="chasers.h" />
     <ClInclude Include="gan.h" />
+    <ClInclude Include="gan2.h" />
+    <ClInclude Include="crossentropy.h" />
     <ClInclude Include="graph.h" />
     <ClInclude Include="macros.h" />
     <ClInclude Include="graphics.h" />
@@ -148,6 +149,9 @@
     <ClInclude Include="simulation.h" />
     <ClInclude Include="threadpool.h" />
     <ClInclude Include="timer.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="tnn.natvis" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

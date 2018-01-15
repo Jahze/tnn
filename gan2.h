@@ -6,9 +6,9 @@
 
 namespace mnist {
 
-class GAN : public ::SimpleSimulation {
+class GAN2 : public ::SimpleSimulation {
 public:
-  GAN(std::size_t msPerFrame,
+  GAN2(std::size_t msPerFrame,
       OpenGLContext & context,
       const std::string & trainingFilename,
       const std::string & trainingLabels,
@@ -29,7 +29,7 @@ public:
     CHECK(trainingOutput_.Size() == trainingImages_.Size());
 
     const std::size_t dimension = trainingImages_.Width();
-    brain_.reset(new NeuralNet(dimension * dimension, 11, 1, 300));
+    brain_.reset(new NeuralNet(dimension * dimension, 1, 1, 300));
     generator_.reset(new NeuralNet(100 + 10, dimension * dimension, 1, 300));
     //generator_->SetHiddenLayerActivationType(ActivationType::ReLu);
     generator_->SetHiddenLayerActivationType(ActivationType::Tanh);
@@ -45,8 +45,6 @@ public:
     classifyOutput_ = mnist::LabelFile::Read(classifyLabels);
 
     CHECK(classifyOutput_.Size() == classifyImages_.Size());
-
-    Classify();
 
     context.AddResizeListener([this](){ recreateScene_ = true; });
     RenderImages();
@@ -72,30 +70,26 @@ protected:
         classifyData_[classifyIndex_].get(),
         classifyData_[classifyIndex_].get() + inputSize);
 
-      auto outputs = brain_->Process(inputs);
-      std::size_t digit = 0u;
-      for (std::size_t i = 0u, length = outputs.size(); i < length; ++i) {
-        if (outputs[i] > outputs[digit])
-          digit = i;
-      }
-
-      if (digit == classifyOutput_.GetDigit(classifyIndex_))
-        objects_[classifyIndex_]->Matched();
-      else
-        objects_[classifyIndex_]->NotMatched();
-
-      //std::cout << "generated?= " << (classifyIndex_ % 2 == 1)
-      //  << ", output=" << digit << "\n";
-
       //auto outputs = brain_->Process(inputs);
-      ////objects_[classifyIndex_]->Confidence(outputs[0]);
-      //if (outputs[0] >= outputs[1])
+      //std::size_t digit = 0u;
+      //for (std::size_t i = 0u, length = outputs.size(); i < length; ++i) {
+      //  if (outputs[i] > outputs[digit])
+      //    digit = i;
+      //}
+
+      //if (digit == classifyOutput_.GetDigit(classifyIndex_))
       //  objects_[classifyIndex_]->Matched();
       //else
       //  objects_[classifyIndex_]->NotMatched();
 
       //std::cout << "generated?= " << (classifyIndex_ % 2 == 1)
-      //  << ", output=" << outputs[0] << ", " << outputs[1] << "\n";
+      //  << ", output=" << digit << "\n";
+
+      auto outputs = brain_->Process(inputs);
+      objects_[classifyIndex_]->Confidence(outputs[0]);
+
+      std::cout << "generated?= " << (classifyIndex_ % 2 == 1)
+        << ", output=" << outputs[0] << "\n";
       classifyIndex_++;
     }
     else if (classifyIndex_ == objects_.size()) {
@@ -137,8 +131,7 @@ protected:
 
       Timer trainingTimer;
 
-      //Aligned32ByteRAIIStorage<double> idealOutputs(2u);
-      Aligned32ByteRAIIStorage<double> idealOutputs(11u);
+      Aligned32ByteRAIIStorage<double> idealOutputs(1u);
 
       const auto & data = trainingOutput_.Data();
 
@@ -152,33 +145,26 @@ protected:
 
         // Want a value of 1.0 (which says it is a digit
         // with a probability of 100%)
-        //idealOutputs[0] = 1.0;
-        //idealOutputs[1] = 0.0;
+        idealOutputs[0] = 1.0;
+
+        brain_->BackPropagationThreaded2(inputs, idealOutputs);
+
         const auto & outputs = data[i];
-        std::memcpy(idealOutputs.Get(), outputs.data(), 10u * sizeof(double));
-        idealOutputs[10] = 0.0;
-
-        brain_->BackPropagationThreaded(inputs, idealOutputs);
-
         std::vector<double> generatorInputs = GeneratorInputs(outputs);
 
         auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
 
         // Want a value of 0.0 (because it's not from the training set)
-        //idealOutputs[0] = 0.0;
-        //idealOutputs[1] = 1.0;
-        std::memset(idealOutputs.Get(), 0, 10u * sizeof(double));
-        idealOutputs[10] = 1.0;
+        idealOutputs[0] = 0.0;
 
-        brain_->BackPropagationThreaded(generatedOutputs, idealOutputs);
+        brain_->BackPropagationThreaded2(generatedOutputs, idealOutputs);
 
         // TODO: take the loss function before backpropping this case as not
         // a sample -> is this right?
         generatorInputs = GeneratorInputs(outputs);
         generatedOutputs = generator_->ProcessThreaded(generatorInputs);
 
-        std::memcpy(idealOutputs.Get(), outputs.data(), 10u * sizeof(double));
-        idealOutputs[10] = 0.0;
+        idealOutputs[0] = 1.0;
 
         Aligned32ByteRAIIStorage<double> loss;
         brain_->LastLoss(generatedOutputs, idealOutputs, loss);
@@ -198,59 +184,7 @@ protected:
     };
 
     TrainNeuralNet(brain_.get(), TrainFunction,
-      SteppingLearningRate{0.5, 0.1}, 1);
-  }
-
-  void Classify() {
-    const auto & classifyData = classifyImages_.NormalisedData();
-    const std::size_t length = classifyData.size();
-
-    const std::size_t dimension = classifyImages_.Width();
-    const std::size_t inputSize = dimension * dimension;
-
-    std::vector<double> inputs(inputSize);
-
-    std::size_t matched = 0u;
-    std::size_t byDigit[11][2];
-    for (std::size_t i = 0u; i < 10; ++i)
-      byDigit[i][0] = byDigit[i][1] = 0;
-
-    for (std::size_t datum = 0; datum < length; ++datum) {
-      inputs.assign(
-        classifyData[datum].inputs.get(),
-        classifyData[datum].inputs.get() + inputSize);
-
-      auto outputs = brain_->ProcessThreaded(inputs);
-      std::size_t digit = 0u;
-      for (std::size_t i = 0u, length = outputs.size(); i < length; ++i) {
-        if (outputs[i] > outputs[digit])
-          digit = i;
-      }
-
-      auto expected = classifyOutput_.GetDigit(datum);
-
-      byDigit[expected][0]++;
-
-      if (digit == expected) {
-        matched++;
-        byDigit[digit][1]++;
-      }
-    }
-
-    double matchRate =
-      static_cast<double>(matched) / static_cast<double>(length);
-    matchRate *= 100.0;
-
-    std::cout << "Match rate = " << matchRate << "%\n";
-
-    for (std::size_t i = 0; i < 11; ++i) {
-      double digitMatchRate =
-        static_cast<double>(byDigit[i][1]) / static_cast<double>(byDigit[i][0]);
-
-      digitMatchRate *= 100.0;
-
-      std::cout << "Match rate for " << i << " = "<< digitMatchRate << "%\n";
-    }
+      SteppingLearningRate{0.5, 0.01}, 1);
   }
 
   void DestroyScene() {
