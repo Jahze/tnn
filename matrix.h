@@ -92,6 +92,7 @@ inline void SIMDMultiply(
 struct AlignedMatrix {
   std::size_t rows_;
   std::size_t columns_;
+  std::size_t alignedColumns_;
   Aligned32ByteRAIIStorage<double> values_;
 
   AlignedMatrix() : rows_(0u), columns_(0u) {}
@@ -103,15 +104,20 @@ struct AlignedMatrix {
   void Reset(std::size_t rows, std::size_t columns) {
     rows_ = rows;
     columns_ = columns;
-    values_.Reset(rows_ * columns_);
+    alignedColumns_ = AlignTo32Bytes<double>(columns_);
+    values_.Reset(rows_ * alignedColumns_);
+
+    // Initialise the unused values allocated for alignment to 0 so
+    // that they don't contribute to the multiplication
+    std::memset(values_.Get(), 0, rows_ * alignedColumns_ * sizeof(double));
   }
 
   double * Row(std::size_t row) {
-    return values_.Get() + (row * columns_);
+    return values_.Get() + (row * alignedColumns_);
   }
 
   const double * Row(std::size_t row) const {
-    return values_.Get() + (row * columns_);
+    return values_.Get() + (row * alignedColumns_);
   }
 
   double & Value(std::size_t row, std::size_t column) {
@@ -122,14 +128,6 @@ struct AlignedMatrix {
     return Row(row)[column];
   }
 
-  void Transpose(AlignedMatrix & matrix) const {
-    for (std::size_t i = 0u; i < rows_; ++i) {
-      for (std::size_t j = 0u; j < columns_; ++j) {
-        matrix.values_[(j * rows_) + i] = Value(i, j);
-      }
-    }
-  }
-
   void Multiply(const Aligned32ByteRAIIStorage<double> & inputs,
       Aligned32ByteRAIIStorage<double> & outputs) const {
     std::size_t weightsIndex = 0;
@@ -137,8 +135,10 @@ struct AlignedMatrix {
     for (std::size_t i = 0u; i < rows_; ++i) {
       outputs[i] = 0.0;
 
+      const double * row = Row(i);
+
       for (std::size_t j = 0u; j < columns_; ++j)
-        outputs[i] += inputs[j] * values_[weightsIndex++];
+        outputs[i] += inputs[j] * row[j];
     }
   }
 
@@ -154,7 +154,7 @@ struct AlignedMatrix {
       for (std::size_t i = start; i < end; ++i) {
         __m256d result = _mm256_setzero_pd();
 
-        const std::size_t batches = AlignTo32Bytes<double>(columns_) / 4;
+        const std::size_t batches = alignedColumns_ / 4;
         for (std::size_t j = 0u; j < batches; ++j) {
           std::size_t stride = j * 4;
           result = _mm256_add_pd(result, _mm256_mul_pd(
@@ -166,7 +166,7 @@ struct AlignedMatrix {
 
         outputs[i] = result.m256d_f64[0] + result.m256d_f64[2];
 
-        values += columns_;
+        values += alignedColumns_;
       }
     });
 
