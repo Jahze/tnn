@@ -16,11 +16,11 @@ public:
     brain_->SetLearningRate(0.01);
     brain_->SetHiddenLayerActivationType(ActivationType::Tanh);
 
-    std::vector<double> weights = {
-      2.29015, 0, -0.927542, 0, -2.04721, -1.12544, 0
-    };
+    //std::vector<double> weights = {
+    //  2.29015, 0, -0.927542, 0, -2.04721, -1.12544, 0
+    //};
 
-    brain_->SetWeights(weights);
+    //brain_->SetWeights(weights);
 
     Graph::Limits limits{xmin_, xmax_, 0.0, 1.0};
     graph_.reset(new Graph(context_.Handle(), limits));
@@ -70,7 +70,7 @@ protected:
         double normalisedValue = -1.0 + normalised * 2.0;
         inputs[0] = normalisedValue;
         idealOutputs[0] = TargetFunction(input);
-        brain_->BackPropagationThreaded2(inputs, idealOutputs);
+        brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
       }
       epochs_++;
     }
@@ -140,8 +140,8 @@ protected:
   }
 
   double TargetFunction(double input) {
-    //return 1.0 / (1.0 + std::exp(-10.0 * input));
-    return input > 0.0 ? 1.0 : 0.0;
+    return 1.0 / (1.0 + std::exp(-10.0 * input));
+    //return input > 0.0 ? 1.0 : 0.0;
     //return input;
     //return 0.5;
   }
@@ -183,7 +183,7 @@ private:
       double normalisedValue = -1.0 + normalised * 2.0;
       inputs[0] = normalisedValue;
       idealOutputs[0] = TargetFunction(input);
-      brain_->BackPropagationThreaded2(inputs, idealOutputs);
+      brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
       file << "input: " << input << " [" << normalisedValue << "]: ";
       PrintWeights(file);
     }

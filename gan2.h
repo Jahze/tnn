@@ -30,9 +30,11 @@ public:
 
     const std::size_t dimension = trainingImages_.Width();
     brain_.reset(new NeuralNet(dimension * dimension, 1, 1, 300));
-    generator_.reset(new NeuralNet(100 + 10, dimension * dimension, 1, 300));
+    brain_->SetHiddenLayerActivationType(ActivationType::Tanh);
+    generator_.reset(new NeuralNet(100 + 10, dimension * dimension, 1, 100));
     //generator_->SetHiddenLayerActivationType(ActivationType::ReLu);
     generator_->SetHiddenLayerActivationType(ActivationType::Tanh);
+    generator_->SetLearningRate(0.01);
 
     TrainModel();
 
@@ -105,7 +107,8 @@ protected:
   std::vector<double> GeneratorInputs(const std::vector<double> & outputs) {
     std::vector<double> generatorInputs;
     std::generate_n(std::back_inserter(generatorInputs), 100,
-      [this]() {return RandomDouble(0.0, 1.0); });
+      //[this]() {return RandomDouble(0.0, 1.0); });
+      [this]() {return RandomDouble(-1.0, 1.0); });
 
     // Put one-hot vector as input to switch type of digit generation
     for (std::size_t i = 0u; i < 10u; ++i)
@@ -132,6 +135,7 @@ protected:
       Timer trainingTimer;
 
       Aligned32ByteRAIIStorage<double> idealOutputs(1u);
+      Aligned32ByteRAIIStorage<double> loss;
 
       const auto & data = trainingOutput_.Data();
 
@@ -147,7 +151,7 @@ protected:
         // with a probability of 100%)
         idealOutputs[0] = 1.0;
 
-        brain_->BackPropagationThreaded2(inputs, idealOutputs);
+        brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
 
         const auto & outputs = data[i];
         std::vector<double> generatorInputs = GeneratorInputs(outputs);
@@ -157,7 +161,7 @@ protected:
         // Want a value of 0.0 (because it's not from the training set)
         idealOutputs[0] = 0.0;
 
-        brain_->BackPropagationThreaded2(generatedOutputs, idealOutputs);
+        brain_->BackPropagationCrossEntropy(generatedOutputs, idealOutputs);
 
         // TODO: take the loss function before backpropping this case as not
         // a sample -> is this right?
@@ -166,8 +170,7 @@ protected:
 
         idealOutputs[0] = 1.0;
 
-        Aligned32ByteRAIIStorage<double> loss;
-        brain_->LastLoss(generatedOutputs, idealOutputs, loss);
+        brain_->LastLossCrossEntropy(generatedOutputs, idealOutputs, loss);
 
         generator_->BackPropagationThreaded(loss);
 
@@ -184,7 +187,7 @@ protected:
     };
 
     TrainNeuralNet(brain_.get(), TrainFunction,
-      SteppingLearningRate{0.5, 0.01}, 1);
+      SteppingLearningRate{0.01, 0.01}, 1);
   }
 
   void DestroyScene() {
