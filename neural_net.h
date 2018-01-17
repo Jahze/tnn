@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <immintrin.h>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <random>
@@ -41,6 +42,7 @@ struct NeuroneLayer {
   AlignedMatrix weights_;
   AlignedMatrix transpose_;
   Aligned32ByteRAIIStorage<double> outputs_;
+  Aligned32ByteRAIIStorage<double> dLoss_dNet_;
   double * inputs_;
   ActivationType activationType_ = ActivationType::Sigmoid;
 
@@ -191,6 +193,24 @@ public:
     CHECK(cursor == weights.data() + weights.size());
   }
 
+  void SerializeWeights() {
+    std::ofstream file("weights.txt");
+    for (auto && weight : GetWeights())
+      file << weight << "\n";
+  }
+
+  void DeserializeWeights() {
+    std::vector<double> weights;
+    std::ifstream file("weights.txt");
+    while (!file.eof()) {
+      std::string line;
+      std::getline(file, line);
+      if (line.empty()) continue;
+      weights.push_back(std::stod(line));
+    }
+    SetWeights(weights);
+  }
+
   void SetLearningRate(double rate) {
     learningRate_ = rate;
   }
@@ -302,7 +322,10 @@ public:
     for (std::size_t i = 0u; i < length; ++i)
       loss[i] = lossFunctionDerivative(outputs[i], i);
 
-    BackPropagationThreaded(loss);
+    Calculate_dLoss_dNet(hiddenLayers_, loss.Get());
+
+    CalculateGradients();
+    UpdateWeights();
   }
 
   void BackPropagationThreaded(const std::vector<double> & inputs,
@@ -315,15 +338,78 @@ public:
     for (std::size_t i = 0u; i < length; ++i)
       idealOutputs[i] = -(idealOutputs[i] - outputs[i]);
 
-    BackPropagationThreaded(idealOutputs);
+    Calculate_dLoss_dNet(hiddenLayers_, idealOutputs.Get());
+
+    CalculateGradients();
+    UpdateWeights();
   }
 
-  void BackPropagationThreaded(const Aligned32ByteRAIIStorage<double> & lossIn) {
-    Aligned32ByteRAIIStorage<double> dLoss_dNet;
-    Aligned32ByteRAIIStorage<double> lastLoss;
+  void BackPropagationCrossEntropy(const std::vector<double> & inputs,
+      Aligned32ByteRAIIStorage<double> & idealOutputs) {
 
-    // dLoss/dOut
-    const double * loss = lossIn.Get();
+    const auto & outputs = ProcessThreaded(inputs);
+
+    const std::size_t length = outputs.size();
+
+    layers_[hiddenLayers_].dLoss_dNet_.Reset(length);
+    double * dLoss_dNet = layers_[hiddenLayers_].dLoss_dNet_.Get();
+
+    // cross-entropy loss
+    // https://www.ics.uci.edu/~pjsadows/notes.pdf
+    for (std::size_t i = 0u; i < length; ++i)
+      dLoss_dNet[i] = (outputs[i] - idealOutputs[i]);
+
+    CalculateGradients();
+    UpdateWeights();
+  }
+
+  void BackPropagationCrossEntropy(NeuralNet & net,
+      const std::vector<double> & inputs,
+      Aligned32ByteRAIIStorage<double> & idealOutputs) {
+
+    const auto & outputs = net.ProcessThreaded(inputs);
+
+    const std::size_t length = outputs.size();
+
+    net.layers_[hiddenLayers_].dLoss_dNet_.Reset(length);
+    double * dLoss_dNet = net.layers_[hiddenLayers_].dLoss_dNet_.Get();
+
+    // cross-entropy loss
+    // https://www.ics.uci.edu/~pjsadows/notes.pdf
+    for (std::size_t i = 0u; i < length; ++i)
+      dLoss_dNet[i] = (outputs[i] - idealOutputs[i]);
+
+    // Calculate dLoss_dNet for discriminator
+    net.CalculateGradients();
+
+    // Get final loss to calculate genertor dLoss_dNet
+    Aligned32ByteRAIIStorage<double> lastLoss;
+    net.CalculateLoss(0, lastLoss);
+
+    Calculate_dLoss_dNet(hiddenLayers_, lastLoss.Get());
+
+    // TODO: segfault here sometimes
+    CalculateGradients();
+    UpdateWeights();
+  }
+
+  // TODO: debugging temp
+  const std::vector<NeuroneLayer> & Layers() const { return layers_; }
+
+private:
+  void Create() {
+    CHECK(hiddenLayers_ > 0);
+
+    layers_.emplace_back(neuronesPerHiddenLayer_, inputs_);
+
+    for (std::size_t i = 0, length = hiddenLayers_ - 1; i < length; ++i)
+      layers_.emplace_back(neuronesPerHiddenLayer_, neuronesPerHiddenLayer_);
+
+    layers_.emplace_back(outputs_, neuronesPerHiddenLayer_);
+  }
+
+  void UpdateWeights() {
+    Aligned32ByteRAIIStorage<double> lastLoss;
 
     ThreadPool * pool = GetCpuSizedThreadPool();
 
@@ -333,27 +419,21 @@ public:
 
       auto & layer = layers_[current];
 
-      Calculate_dLoss_dNet(current, loss, dLoss_dNet);
-
-      if (current > 0u) {
-        CalculateLoss(current, dLoss_dNet, lastLoss);
-        loss = lastLoss.Get();
-      }
-
       BatchTasks tasks2(*pool);
-      tasks2.CreateBatches(layer.size_, [this, &layer,
-        &dLoss_dNet, current]
+      tasks2.CreateBatches(layer.size_, [this, &layer]
         (std::size_t start, std::size_t end) {
+
+        const double LearningRate = learningRate_;
+
+        // dLoss/dWeight = dLoss/dOut * dOut/dNet * dNet/dWeight
+
+        const double * dLoss_dNet = layer.dLoss_dNet_.Get();
+        const double * dNet_dWeights = layer.inputs_;
 
         for (std::size_t k = start; k < end; ++k) {
           auto & neurone = layer.Neurones(k);
           const std::size_t inputs = layer.weightsPerNeurone_;
 
-          const double LearningRate = learningRate_;
-
-          // dLoss/dWeight = dLoss/dOut * dOut/dNet * dNet/dWeight
-
-          const double * dNet_dWeights = layers_[current].inputs_;
 
           __m256d scalar = _mm256_set1_pd(LearningRate * dLoss_dNet[k]);
 
@@ -373,66 +453,9 @@ public:
     }
   }
 
-  void LastLoss(const std::vector<double> & inputs,
-      Aligned32ByteRAIIStorage<double> & idealOutputs,
-      Aligned32ByteRAIIStorage<double> & lastLoss) {
-
-    const auto & outputs = ProcessThreaded(inputs);
-
-    const std::size_t length = outputs.size();
-
-    for (std::size_t i = 0u; i < length; ++i)
-      idealOutputs[i] = -(idealOutputs[i] - outputs[i]);
-
-    LastLoss(idealOutputs, lastLoss);
-  }
-
-  void LastLoss(const Aligned32ByteRAIIStorage<double> & lossIn,
-      Aligned32ByteRAIIStorage<double> & lastLoss) {
-
-    Aligned32ByteRAIIStorage<double> dLoss_dNet;
-
-    // dLoss/dOut
-    const double * loss = lossIn.Get();
-
-    ThreadPool * pool = GetCpuSizedThreadPool();
-
-    for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
-      // Go backwards through the layers
-      const std::size_t current = hiddenLayers_ - i;
-
-      auto & layer = layers_[current];
-
-      Calculate_dLoss_dNet(current, loss, dLoss_dNet);
-
-      CalculateLoss(current, dLoss_dNet, lastLoss);
-
-      loss = lastLoss.Get();
-    }
-  }
-
-  void BackPropagationCrossEntropy(const std::vector<double> & inputs,
-      Aligned32ByteRAIIStorage<double> & idealOutputs) {
-
-    const auto & outputs = ProcessThreaded(inputs);
-
-    const std::size_t length = outputs.size();
-
-    // cross-entropy loss
-    // https://www.ics.uci.edu/~pjsadows/notes.pdf
-    for (std::size_t i = 0u; i < length; ++i)
-      idealOutputs[i] = (outputs[i] - idealOutputs[i]);
-
-    BackPropagationCrossEntropy(idealOutputs);
-  }
-
-  void BackPropagationCrossEntropy(const Aligned32ByteRAIIStorage<double> & lossIn) {
-    Aligned32ByteRAIIStorage<double> dLoss_dNet;
+  void CalculateGradients() {
     Aligned32ByteRAIIStorage<double> lastLoss;
 
-    // dLoss/dOut
-    const double * loss = lossIn.Get();
-
     ThreadPool * pool = GetCpuSizedThreadPool();
 
     for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
@@ -441,125 +464,30 @@ public:
 
       auto & layer = layers_[current];
 
-      // First layer dLoss_dNet is fully calculated in lossIn
-      if (i > 0u) {
-        Calculate_dLoss_dNet(current, loss, dLoss_dNet);
-
-        // Don't need the loss for the first layer the loop will end
-        if (current > 0u) {
-          CalculateLoss(current, dLoss_dNet, lastLoss);
-          loss = lastLoss.Get();
-        }
-      }
-
-      const double * dLoss_dNet_ptr =
-        i == 0 ? lossIn.Get() : dLoss_dNet.Get();
-
-      BatchTasks tasks2(*pool);
-      tasks2.CreateBatches(layer.size_, [this, &layer,
-        &dLoss_dNet_ptr, current]
-        (std::size_t start, std::size_t end) {
-
-        for (std::size_t k = start; k < end; ++k) {
-          auto & neurone = layer.Neurones(k);
-          const std::size_t inputs = layer.weightsPerNeurone_;
-
-          const double LearningRate = learningRate_;
-
-          // dLoss/dWeight = dLoss/dOut * dOut/dNet * dNet/dWeight
-
-          const double * dNet_dWeights = layers_[current].inputs_;
-
-          __m256d scalar = _mm256_set1_pd(LearningRate * dLoss_dNet_ptr[k]);
-
-          const std::size_t batches = AlignTo32Bytes<double>(inputs) / 4;
-          for (std::size_t l = 0; l < batches; ++l) {
-            __m256d dNet_dWeight = _mm256_load_pd(dNet_dWeights + (l * 4));
-            __m256d product = _mm256_mul_pd(dNet_dWeight, scalar);
-            __m256d neuroneWeights = _mm256_load_pd(neurone.ptr_ + (l * 4));
-            __m256d result = _mm256_sub_pd(neuroneWeights, product);
-            std::memcpy(neurone.ptr_ + (l * 4),
-              result.m256d_f64, sizeof(double) * 4);
-          }
-        }
-      });
-
-      tasks2.Run();
-    }
-  }
-
-  void LastLossCrossEntropy(const std::vector<double> & inputs,
-      Aligned32ByteRAIIStorage<double> & idealOutputs,
-      Aligned32ByteRAIIStorage<double> & lastLoss) {
-
-    const auto & outputs = ProcessThreaded(inputs);
-
-    const std::size_t length = outputs.size();
-
-    for (std::size_t i = 0u; i < length; ++i)
-      idealOutputs[i] = (outputs[i] - idealOutputs[i]);
-
-    LastLossCrossEntropy(idealOutputs, lastLoss);
-  }
-
-  void LastLossCrossEntropy(const Aligned32ByteRAIIStorage<double> & lossIn,
-      Aligned32ByteRAIIStorage<double> & lastLoss) {
-
-    Aligned32ByteRAIIStorage<double> dLoss_dNet;
-
-    // dLoss/dOut
-    const double * loss = lossIn.Get();
-
-    for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
-      // Go backwards through the layers
-      const std::size_t current = hiddenLayers_ - i;
-
-      auto & layer = layers_[current];
-
-      // First layer dLoss_dNet is full calculated in lossIn
-      if (i > 0u) {
-        Calculate_dLoss_dNet(current, loss, dLoss_dNet);
-
-        CalculateLoss(current, dLoss_dNet, lastLoss);
-        loss = lastLoss.Get();
+      if (current > 0u) {
+        CalculateLoss(current, lastLoss);
+        Calculate_dLoss_dNet(current - 1, lastLoss.Get());
       }
     }
   }
 
-private:
-  void Create() {
-    CHECK(hiddenLayers_ > 0);
-
-    layers_.emplace_back(neuronesPerHiddenLayer_, inputs_);
-
-    for (std::size_t i = 0, length = hiddenLayers_ - 1; i < length; ++i)
-      layers_.emplace_back(neuronesPerHiddenLayer_, neuronesPerHiddenLayer_);
-
-    layers_.emplace_back(outputs_, neuronesPerHiddenLayer_);
-  }
-
-  void Calculate_dLoss_dNet(std::size_t current,
-      const double * loss,
-      Aligned32ByteRAIIStorage<double> & dLoss_dNet) {
-
+  void Calculate_dLoss_dNet(std::size_t current, const double * loss) {
     auto & layer = layers_[current];
 
-    dLoss_dNet.Reset(layer.size_);
+    layer.dLoss_dNet_.Reset(layer.size_);
 
     for (std::size_t k = 0u; k < layer.size_; ++k) {
       const double out = layer.outputs_[k];
 
-      // dOut/dNet
-      dLoss_dNet[k] =
+      layer.dLoss_dNet_[k] =
         ActivationFunctionDerivative(layer.activationType_, out);
     }
 
-    SIMDMultiply(loss, dLoss_dNet.Get(),
-      dLoss_dNet, layer.size_);
+    SIMDMultiply(loss, layer.dLoss_dNet_.Get(),
+      layer.dLoss_dNet_, layer.size_);
   }
 
   void CalculateLoss(std::size_t layer,
-    Aligned32ByteRAIIStorage<double> & dLoss_dNet,
     Aligned32ByteRAIIStorage<double> & loss) {
 
     const std::size_t layerSize = layers_[layer].size_;
@@ -570,7 +498,7 @@ private:
 
     for (std::size_t i = 0u; i < prevLayerSize; ++i) {
       for (std::size_t j = 0u; j < layerSize; ++j) {
-        loss[i] += dLoss_dNet[j]
+        loss[i] += layers_[layer].dLoss_dNet_[j]
           * layers_[layer].Neurones(j).Weights(i);
       }
     }

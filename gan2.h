@@ -64,39 +64,13 @@ protected:
       recreateScene_ = false;
     }
 
-    if (render && classifyIndex_ < objects_.size()) {
-      const std::size_t dimension = classifyImages_.Width();
-      const std::size_t inputSize = dimension * dimension;
+    //for (std::size_t i = 0u; i < 50u; ++i) {
+    //  TrainOne(trainingCursor_++);
+    //  if (trainingCursor_ % 1000u == 0)
+    //    recreateScene_ = true;
+    //}
 
-      std::vector<double> inputs(
-        classifyData_[classifyIndex_].get(),
-        classifyData_[classifyIndex_].get() + inputSize);
-
-      //auto outputs = brain_->Process(inputs);
-      //std::size_t digit = 0u;
-      //for (std::size_t i = 0u, length = outputs.size(); i < length; ++i) {
-      //  if (outputs[i] > outputs[digit])
-      //    digit = i;
-      //}
-
-      //if (digit == classifyOutput_.GetDigit(classifyIndex_))
-      //  objects_[classifyIndex_]->Matched();
-      //else
-      //  objects_[classifyIndex_]->NotMatched();
-
-      //std::cout << "generated?= " << (classifyIndex_ % 2 == 1)
-      //  << ", output=" << digit << "\n";
-
-      auto outputs = brain_->Process(inputs);
-      objects_[classifyIndex_]->Confidence(outputs[0]);
-
-      std::cout << "generated?= " << (classifyIndex_ % 2 == 1)
-        << ", output=" << outputs[0] << "\n";
-      classifyIndex_++;
-    }
-    else if (classifyIndex_ == objects_.size()) {
-      recreateScene_ = true;
-    }
+    //recreateScene_ = true;
 
     scene_->Update(ms);
 
@@ -140,7 +114,7 @@ protected:
       const auto & data = trainingOutput_.Data();
 
       //for (std::size_t i = 0u; i < length; ++i, ++progress) {
-      for (std::size_t i = 0u; i < 10000u; ++i, ++progress) {
+      for (std::size_t i = 0u; i < 20000u; ++i, ++progress) {
         const auto & normalisedImage = normalisedImages[i];
 
         inputs.assign(
@@ -163,16 +137,20 @@ protected:
 
         brain_->BackPropagationCrossEntropy(generatedOutputs, idealOutputs);
 
-        // TODO: take the loss function before backpropping this case as not
-        // a sample -> is this right?
-        generatorInputs = GeneratorInputs(outputs);
-        generatedOutputs = generator_->ProcessThreaded(generatorInputs);
+        // Train 100 samples on discriminator then 100 on generator
+        if (i > 0u && i % 100u == 0u) {
+          // TODO: take the loss function before backpropping this case as not
+          // a sample -> is this right?
+          for (std::size_t j = 0u; j < 100u; ++j) {
+            generatorInputs = GeneratorInputs(outputs);
+            generatedOutputs = generator_->ProcessThreaded(generatorInputs);
 
-        idealOutputs[0] = 1.0;
+            idealOutputs[0] = 1.0;
 
-        brain_->LastLossCrossEntropy(generatedOutputs, idealOutputs, loss);
-
-        generator_->BackPropagationThreaded(loss);
+            generator_->BackPropagationCrossEntropy(*brain_.get(),
+              generatedOutputs, idealOutputs);
+          }
+        }
 
         if (progress > one_hundredth) {
           progress = 0u;
@@ -188,6 +166,65 @@ protected:
 
     TrainNeuralNet(brain_.get(), TrainFunction,
       SteppingLearningRate{0.01, 0.01}, 1);
+  }
+
+  void TrainOne(const std::size_t i) {
+    const auto & normalisedImages = trainingImages_.NormalisedData();
+    const std::size_t dimension = trainingImages_.Width();
+    const std::size_t inputSize = dimension * dimension;
+
+    std::vector<double> inputs(inputSize);
+
+    const std::size_t length = normalisedImages.size();
+    const std::size_t one_hundredth = length / 100u;
+    std::size_t progress = i % one_hundredth;
+    std::size_t percent = i / one_hundredth;
+
+    std::cout << "\rTraining....." << percent << "%";
+
+    Aligned32ByteRAIIStorage<double> idealOutputs(1u);
+    Aligned32ByteRAIIStorage<double> loss;
+
+    const auto & data = trainingOutput_.Data();
+
+    ++progress;
+
+    const auto & normalisedImage = normalisedImages[i];
+    inputs.assign(
+      normalisedImage.inputs.get(),
+      normalisedImage.inputs.get() + inputSize);
+
+    // Want a value of 1.0 (which says it is a digit
+    // with a probability of 100%)
+    idealOutputs[0] = 1.0;
+
+    brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
+
+    const auto & outputs = data[i];
+    std::vector<double> generatorInputs = GeneratorInputs(outputs);
+
+    auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
+
+    // Want a value of 0.0 (because it's not from the training set)
+    idealOutputs[0] = 0.0;
+
+    brain_->BackPropagationCrossEntropy(generatedOutputs, idealOutputs);
+
+    // TODO: take the loss function before backpropping this case as not
+    // a sample -> is this right?
+    generatorInputs = GeneratorInputs(outputs);
+    generatedOutputs = generator_->ProcessThreaded(generatorInputs);
+
+    idealOutputs[0] = 1.0;
+
+    generator_->BackPropagationCrossEntropy(*brain_.get(),
+      generatedOutputs, idealOutputs);
+
+    if (progress > one_hundredth) {
+      progress = 0u;
+      percent++;
+      std::cout << "\rTraining....." << percent << "%";
+    }
   }
 
   void DestroyScene() {
@@ -266,6 +303,18 @@ protected:
       classifyData_.emplace_back(normalizedData.release());
       useGenerated = !useGenerated;
     }
+
+    for (std::size_t i = 0u; i < objects_.size(); ++i) {
+      const std::size_t dimension = classifyImages_.Width();
+      const std::size_t inputSize = dimension * dimension;
+
+      std::vector<double> inputs(
+        classifyData_[i].get(),
+        classifyData_[i].get() + inputSize);
+
+      auto outputs = brain_->Process(inputs);
+      objects_[i]->Confidence(outputs[0]);
+    }
   }
 
 private:
@@ -291,6 +340,8 @@ private:
   std::vector<std::unique_ptr<double[]>> classifyData_;
   std::size_t classifyIndex_ = 0u;
   bool recreateScene_ = false;
+
+  std::size_t trainingCursor_ = 0u;
 };
 
 }

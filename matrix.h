@@ -32,6 +32,7 @@ public:
   Aligned32ByteRAIIStorage(Aligned32ByteRAIIStorage && rhs) {
     storage_ = rhs.storage_;
     raw_ = rhs.raw_;
+    size_ = rhs.size_;
     rhs.storage_ = nullptr;
     rhs.raw_ = nullptr;
   }
@@ -39,6 +40,7 @@ public:
   Aligned32ByteRAIIStorage& operator=(Aligned32ByteRAIIStorage && rhs) {
     storage_ = rhs.storage_;
     raw_ = rhs.raw_;
+    size_ = rhs.size_;
     rhs.storage_ = nullptr;
     rhs.raw_ = nullptr;
   }
@@ -57,6 +59,9 @@ public:
     size_ = AlignTo32Bytes<T>(size);
     AlignedNew();
   }
+
+  // TODO: debugging temp
+  std::size_t Size() const { return size_; }
 
 private:
   void AlignedNew() {

@@ -180,10 +180,10 @@ protected:
         std::memcpy(idealOutputs.Get(), outputs.data(), 10u * sizeof(double));
         idealOutputs[10] = 0.0;
 
-        Aligned32ByteRAIIStorage<double> loss;
-        brain_->LastLoss(generatedOutputs, idealOutputs, loss);
+        //Aligned32ByteRAIIStorage<double> loss;
+        //brain_->LastLoss(generatedOutputs, idealOutputs, loss);
 
-        generator_->BackPropagationThreaded(loss);
+        //generator_->BackPropagationThreaded(loss);
 
         if (progress > one_hundredth) {
           progress = 0u;
