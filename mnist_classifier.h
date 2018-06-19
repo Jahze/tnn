@@ -159,7 +159,7 @@ protected:
     };
 
     TrainNeuralNet(brain_.get(), TrainFunction,
-      SteppingLearningRate{0.5, 0.1}, 5);
+      SteppingLearningRate{0.5, 0.1}, 1);
   }
 
   void Classify() {

@@ -487,19 +487,22 @@ private:
       layer.dLoss_dNet_, layer.size_);
   }
 
-  void CalculateLoss(std::size_t layer,
+  void CalculateLoss(std::size_t current,
     Aligned32ByteRAIIStorage<double> & loss) {
 
-    const std::size_t layerSize = layers_[layer].size_;
-    const std::size_t prevLayerSize = layers_[layer].neuroneSize_;
+    auto & layer = layers_[current];
+
+    const std::size_t layerSize = layer.size_;
+    const std::size_t prevLayerSize = layer.neuroneSize_;
 
     loss.Reset(prevLayerSize);
     std::memset(loss.Get(), 0, prevLayerSize * sizeof(double));
 
+    double * dLoss_dNet = layer.dLoss_dNet_.Get();
+
     for (std::size_t i = 0u; i < prevLayerSize; ++i) {
       for (std::size_t j = 0u; j < layerSize; ++j) {
-        loss[i] += layers_[layer].dLoss_dNet_[j]
-          * layers_[layer].Neurones(j).Weights(i);
+        loss[i] += dLoss_dNet[j] * layer.Weights(j, i);
       }
     }
   }

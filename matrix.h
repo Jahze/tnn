@@ -117,6 +117,17 @@ struct AlignedMatrix {
     std::memset(values_.Get(), 0, rows_ * alignedColumns_ * sizeof(double));
   }
 
+  void Transpose(AlignedMatrix & out) {
+    out.Reset(columns_, rows_);
+
+    for (std::size_t i = 0u; i < rows_; ++i) {
+      double * row = Row(i);
+      for (std::size_t j = 0u; j < columns_; ++j) {
+        out.Value(j, i) = row[j];
+      }
+    }
+  }
+
   double * Row(std::size_t row) {
     return values_.Get() + (row * alignedColumns_);
   }

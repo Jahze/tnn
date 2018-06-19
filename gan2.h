@@ -31,12 +31,12 @@ public:
     const std::size_t dimension = trainingImages_.Width();
     brain_.reset(new NeuralNet(dimension * dimension, 1, 1, 300));
     brain_->SetHiddenLayerActivationType(ActivationType::Tanh);
-    generator_.reset(new NeuralNet(100 + 10, dimension * dimension, 1, 100));
+    generator_.reset(new NeuralNet(NoiseInputs + 10, dimension * dimension, 1, 100));
     //generator_->SetHiddenLayerActivationType(ActivationType::ReLu);
     generator_->SetHiddenLayerActivationType(ActivationType::Tanh);
-    generator_->SetLearningRate(0.01);
+    generator_->SetLearningRate(0.05);
 
-    TrainModel();
+    //TrainModel();
 
     classifyImages_ = mnist::ImageFile::Read(classifyFilename);
 
@@ -64,23 +64,29 @@ protected:
       recreateScene_ = false;
     }
 
-    //for (std::size_t i = 0u; i < 50u; ++i) {
-    //  TrainOne(trainingCursor_++);
-    //  if (trainingCursor_ % 1000u == 0)
-    //    recreateScene_ = true;
-    //}
-
-    //recreateScene_ = true;
+    const std::size_t samples = 50u;
+    if (trainingCursor_ + samples < trainingImages_.NormalisedData().size()) {
+      for (std::size_t i = 0u; i < 50u; ++i) {
+        TrainOne(trainingCursor_++);
+        if (trainingCursor_ % 1000u == 0)
+          recreateScene_ = true;
+      }
+    }
 
     scene_->Update(ms);
 
     if (render)
       scene_->Render(context_);
+
+    //recreateScene_ = true;
+
+    //Aligned32ByteRAIIStorage<double> idealOutputs(1u);
+    //TrainGenerator(idealOutputs);
   }
 
   std::vector<double> GeneratorInputs(const std::vector<double> & outputs) {
     std::vector<double> generatorInputs;
-    std::generate_n(std::back_inserter(generatorInputs), 100,
+    std::generate_n(std::back_inserter(generatorInputs), NoiseInputs,
       //[this]() {return RandomDouble(0.0, 1.0); });
       [this]() {return RandomDouble(-1.0, 1.0); });
 
@@ -109,7 +115,6 @@ protected:
       Timer trainingTimer;
 
       Aligned32ByteRAIIStorage<double> idealOutputs(1u);
-      Aligned32ByteRAIIStorage<double> loss;
 
       const auto & data = trainingOutput_.Data();
 
@@ -139,17 +144,7 @@ protected:
 
         // Train 100 samples on discriminator then 100 on generator
         if (i > 0u && i % 100u == 0u) {
-          // TODO: take the loss function before backpropping this case as not
-          // a sample -> is this right?
-          for (std::size_t j = 0u; j < 100u; ++j) {
-            generatorInputs = GeneratorInputs(outputs);
-            generatedOutputs = generator_->ProcessThreaded(generatorInputs);
-
-            idealOutputs[0] = 1.0;
-
-            generator_->BackPropagationCrossEntropy(*brain_.get(),
-              generatedOutputs, idealOutputs);
-          }
+          TrainGenerator(idealOutputs);
         }
 
         if (progress > one_hundredth) {
@@ -168,26 +163,37 @@ protected:
       SteppingLearningRate{0.01, 0.01}, 1);
   }
 
+  void TrainGenerator(Aligned32ByteRAIIStorage<double> & idealOutputs) {
+    for (std::size_t i = 0u; i < 100u; ++i) {
+      const auto & outputs = trainingOutput_.Data()[i];
+      for (std::size_t j = 0; j < 10; ++j) {
+        if (j > 0u) std::cout << ", ";
+        else std::cout << "{ ";
+        std::cout << outputs[j];
+      }
+      std::cout << " }\n";
+
+      auto generatorInputs = GeneratorInputs(outputs);
+      auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
+
+      idealOutputs[0] = 1.0;
+
+      generator_->BackPropagationCrossEntropy(*brain_.get(),
+        generatedOutputs, idealOutputs);
+    }
+  }
+
   void TrainOne(const std::size_t i) {
+    std::cout << "Training " << i << "\n";
     const auto & normalisedImages = trainingImages_.NormalisedData();
     const std::size_t dimension = trainingImages_.Width();
     const std::size_t inputSize = dimension * dimension;
 
     std::vector<double> inputs(inputSize);
 
-    const std::size_t length = normalisedImages.size();
-    const std::size_t one_hundredth = length / 100u;
-    std::size_t progress = i % one_hundredth;
-    std::size_t percent = i / one_hundredth;
-
-    std::cout << "\rTraining....." << percent << "%";
-
     Aligned32ByteRAIIStorage<double> idealOutputs(1u);
-    Aligned32ByteRAIIStorage<double> loss;
 
     const auto & data = trainingOutput_.Data();
-
-    ++progress;
 
     const auto & normalisedImage = normalisedImages[i];
     inputs.assign(
@@ -210,20 +216,9 @@ protected:
 
     brain_->BackPropagationCrossEntropy(generatedOutputs, idealOutputs);
 
-    // TODO: take the loss function before backpropping this case as not
-    // a sample -> is this right?
-    generatorInputs = GeneratorInputs(outputs);
-    generatedOutputs = generator_->ProcessThreaded(generatorInputs);
-
-    idealOutputs[0] = 1.0;
-
-    generator_->BackPropagationCrossEntropy(*brain_.get(),
-      generatedOutputs, idealOutputs);
-
-    if (progress > one_hundredth) {
-      progress = 0u;
-      percent++;
-      std::cout << "\rTraining....." << percent << "%";
+    // Train 100 samples on discriminator then 100 on generator
+    if (i > 0u && i % 100u == 0u) {
+      TrainGenerator(idealOutputs);
     }
   }
 
@@ -342,6 +337,8 @@ private:
   bool recreateScene_ = false;
 
   std::size_t trainingCursor_ = 0u;
+
+  const std::size_t NoiseInputs = 100u;
 };
 
 }
