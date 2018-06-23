@@ -16,6 +16,8 @@ enum class ActivationType {
   Sigmoid,
   Tanh,
   ReLu,
+  Identity,
+  LeakyReLu,
 };
 
 double ActivationFunction(ActivationType type, double activation);
@@ -55,6 +57,8 @@ struct NeuroneLayer {
     outputs_.Reset(size_ + 1);
     weights_.Reset(size, weightsPerNeurone_);
     transpose_.Reset(size, weightsPerNeurone_);
+
+    std::memset(outputs_.Get(), 0, sizeof(double) * outputs_.Size());
 
     std::random_device rd;
     std::mt19937 generator(rd());
@@ -142,6 +146,7 @@ public:
     CHECK(inputs.size() == inputs_);
 
     inputsStorage_.Reset(inputs.size() + 1);
+    std::memset(inputsStorage_.Get(), 0, sizeof(double) * inputsStorage_.Size());
     std::copy(inputs.cbegin(), inputs.cend(), inputsStorage_.Get());
     inputsStorage_[inputs.size()] = kThresholdBias;
 
@@ -219,6 +224,10 @@ public:
     // Tanh needs a lower learning rate generally
     for (std::size_t i = 0; i < hiddenLayers_; ++i)
       layers_[i].activationType_ = type;
+  }
+
+  void SetOutputLayerActivationType(ActivationType type) {
+    layers_[hiddenLayers_].activationType_ = type;
   }
 
   void BackPropagation(const std::vector<double> & inputs,
@@ -353,6 +362,10 @@ public:
 
     layers_[hiddenLayers_].dLoss_dNet_.Reset(length);
     double * dLoss_dNet = layers_[hiddenLayers_].dLoss_dNet_.Get();
+
+    // TODO: needed?
+    std::memset(dLoss_dNet, 0,
+      sizeof(double) * layers_[hiddenLayers_].dLoss_dNet_.Size());
 
     // cross-entropy loss
     // https://www.ics.uci.edu/~pjsadows/notes.pdf

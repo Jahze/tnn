@@ -23,6 +23,10 @@ double ActivationFunction(ActivationType type, double activation) {
     return Tanh(activation);
   case ActivationType::ReLu:
     return activation >= 0.0 ? activation : 0.0;
+  case ActivationType::Identity:
+    return activation;
+  case ActivationType::LeakyReLu:
+    return activation >= 0.0 ? activation : activation*0.01;
   }
 }
 
@@ -34,5 +38,9 @@ double ActivationFunctionDerivative(ActivationType type, double value) {
     return 1.0 - (value * value);
   case ActivationType::ReLu:
     return value >= 0.0 ? 1.0 : 0.0;
+  case ActivationType::Identity:
+    return 1.0;
+  case ActivationType::LeakyReLu:
+    return value >= 0.0 ? 1.0 : 0.01;
   }
 }
