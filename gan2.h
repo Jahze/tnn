@@ -1,8 +1,12 @@
 #pragma once
 
 #include <iterator>
+#include <fstream>
 #include "graphics.h"
 #include "mnist.h"
+
+#define WRITE_DEBUG 0
+#define GRAPH_LOSS 0
 
 namespace mnist {
 
@@ -17,6 +21,8 @@ public:
     : ::SimpleSimulation(msPerFrame)
     , context_(context), rng_(random_()) {
 
+    dbgOut_.open("debug.txt");
+
     scene_.reset(new Scene());
 
     trainingImages_ = mnist::ImageFile::Read(trainingFilename);
@@ -29,14 +35,14 @@ public:
     CHECK(trainingOutput_.Size() == trainingImages_.Size());
 
     const std::size_t dimension = trainingImages_.Width();
-    brain_.reset(new NeuralNet(dimension * dimension, 1, 1, 300));
-    brain_->SetHiddenLayerActivationType(ActivationType::Tanh);
+    brain_.reset(new NeuralNet(dimension * dimension + 10, 1, 1, 300));
+    //brain_->SetHiddenLayerActivationType(ActivationType::Tanh);
+    brain_->SetHiddenLayerActivationType(ActivationType::LeakyReLu);
+    brain_->SetLearningRate(0.002);
     generator_.reset(new NeuralNet(NoiseInputs + 10, dimension * dimension, 1, 100));
-    //generator_->SetHiddenLayerActivationType(ActivationType::ReLu);
-    generator_->SetHiddenLayerActivationType(ActivationType::Tanh);
-    generator_->SetLearningRate(0.05);
-
-    //TrainModel();
+    generator_->SetHiddenLayerActivationType(ActivationType::LeakyReLu);
+    //generator_->SetHiddenLayerActivationType(ActivationType::Tanh);
+    generator_->SetLearningRate(0.001);
 
     classifyImages_ = mnist::ImageFile::Read(classifyFilename);
 
@@ -48,46 +54,76 @@ public:
 
     CHECK(classifyOutput_.Size() == classifyImages_.Size());
 
-    context.AddResizeListener([this](){ recreateScene_ = true; });
     RenderImages();
+
+    context.AddResizeListener([this](){
+      recreateScene_ = true; });
+
+#if GRAPH_LOSS
+    Graph::Limits limits;
+    limits.xmin = 0.0; limits.xmax = 1000.0;
+    limits.ymin = 0.0; limits.ymax = 10.0;
+
+    graphWindow_ = std::make_unique<GraphWindow>(limits);
+
+    fakeLossSeries_.r = 0;
+    fakeLossSeries_.b = 255;
+
+    context.AddResizeListener([this](){
+      graphWindow_->Graph()->SignalRedraw(); });
+#endif
   }
 
 protected:
   void StartImpl() {
-    generation_ = 0;
   }
 
   void UpdateImpl(bool render, std::size_t ms) {
-    if (recreateScene_) {
+    if (render && recreateScene_) {
       DestroyScene();
       RenderImages();
       recreateScene_ = false;
     }
 
-    const std::size_t samples = 50u;
-    if (trainingCursor_ + samples < trainingImages_.NormalisedData().size()) {
-      for (std::size_t i = 0u; i < 50u; ++i) {
-        TrainOne(trainingCursor_++);
-        if (trainingCursor_ % 1000u == 0)
-          recreateScene_ = true;
-      }
-    }
+    if (trainingCursor_ + BatchSize >= trainingImages_.NormalisedData().size())
+      trainingCursor_ = 0u;
+
+    Aligned32ByteRAIIStorage<double> idealOutputs(1u);
+
+    const auto & loss = TrainDiscriminator(idealOutputs);
+    TrainGenerator(idealOutputs);
+
+    std::cout << "Iteration " << ++iteration_ << "\n";
+
+#if GRAPH_LOSS
+    realLossSeries_.points.push_back({ static_cast<double>(iteration_), loss.first });
+    fakeLossSeries_.points.push_back({ static_cast<double>(iteration_), loss.second });
+    graphWindow_->Graph()->Clear();
+    graphWindow_->Graph()->AddSeries(realLossSeries_);
+    graphWindow_->Graph()->AddSeries(fakeLossSeries_);
+#endif
+    recreateScene_ = true;
 
     scene_->Update(ms);
 
-    if (render)
+    if (render) {
+      context_.MakeActive();
       scene_->Render(context_);
 
-    //recreateScene_ = true;
-
-    //Aligned32ByteRAIIStorage<double> idealOutputs(1u);
-    //TrainGenerator(idealOutputs);
+#if GRAPH_LOSS
+      graphWindow_->Context()->MakeActive();
+      ::PAINTSTRUCT ps;
+      ::HDC hdc = ::BeginPaint(graphWindow_->Context()->Handle(), &ps);
+      graphWindow_->Graph()->DrawAxes();
+      graphWindow_->Graph()->DrawSeries();
+      ::EndPaint(context_.Handle(), &ps);
+#endif
+    }
   }
 
   std::vector<double> GeneratorInputs(const std::vector<double> & outputs) {
     std::vector<double> generatorInputs;
     std::generate_n(std::back_inserter(generatorInputs), NoiseInputs,
-      //[this]() {return RandomDouble(0.0, 1.0); });
       [this]() {return RandomDouble(-1.0, 1.0); });
 
     // Put one-hot vector as input to switch type of digit generation
@@ -97,129 +133,101 @@ protected:
     return generatorInputs;
   }
 
-  void TrainModel() {
-    auto TrainFunction = [this]() {
-      const auto & normalisedImages = trainingImages_.NormalisedData();
-      const std::size_t dimension = trainingImages_.Width();
-      const std::size_t inputSize = dimension * dimension;
-
-      std::vector<double> inputs(inputSize);
-
-      std::cout << "Training.....0%";
-
-      const std::size_t length = normalisedImages.size();
-      const std::size_t one_hundredth = length / 100u;
-      std::size_t progress = 0u;
-      std::size_t percent = 0u;
-
-      Timer trainingTimer;
-
-      Aligned32ByteRAIIStorage<double> idealOutputs(1u);
-
-      const auto & data = trainingOutput_.Data();
-
-      //for (std::size_t i = 0u; i < length; ++i, ++progress) {
-      for (std::size_t i = 0u; i < 20000u; ++i, ++progress) {
-        const auto & normalisedImage = normalisedImages[i];
-
-        inputs.assign(
-          normalisedImage.inputs.get(),
-          normalisedImage.inputs.get() + inputSize);
-
-        // Want a value of 1.0 (which says it is a digit
-        // with a probability of 100%)
-        idealOutputs[0] = 1.0;
-
-        brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
-
-        const auto & outputs = data[i];
-        std::vector<double> generatorInputs = GeneratorInputs(outputs);
-
-        auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
-
-        // Want a value of 0.0 (because it's not from the training set)
-        idealOutputs[0] = 0.0;
-
-        brain_->BackPropagationCrossEntropy(generatedOutputs, idealOutputs);
-
-        // Train 100 samples on discriminator then 100 on generator
-        if (i > 0u && i % 100u == 0u) {
-          TrainGenerator(idealOutputs);
-        }
-
-        if (progress > one_hundredth) {
-          progress = 0u;
-          percent++;
-          std::cout << "\rTraining....." << percent << "% ["
-            << trainingTimer.ElapsedMicroseconds() << "]";
-          trainingTimer.Reset();
-        }
-      }
-
-      std::cout << "\rTraining.....done\n";
-    };
-
-    TrainNeuralNet(brain_.get(), TrainFunction,
-      SteppingLearningRate{0.01, 0.01}, 1);
-  }
-
   void TrainGenerator(Aligned32ByteRAIIStorage<double> & idealOutputs) {
-    for (std::size_t i = 0u; i < 100u; ++i) {
-      const auto & outputs = trainingOutput_.Data()[i];
-      for (std::size_t j = 0; j < 10; ++j) {
-        if (j > 0u) std::cout << ", ";
-        else std::cout << "{ ";
-        std::cout << outputs[j];
-      }
-      std::cout << " }\n";
+    const auto & labels = trainingOutput_.Data();
 
-      auto generatorInputs = GeneratorInputs(outputs);
+    for (std::size_t i = trainingCursor_;
+      i < trainingCursor_ + BatchSize;
+      ++i) {
+      const auto & label = labels[i];
+
+      auto generatorInputs = GeneratorInputs(label);
       auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
 
       idealOutputs[0] = 1.0;
+
+      generatedOutputs.insert(generatedOutputs.end(),
+        label.begin(), label.end());
 
       generator_->BackPropagationCrossEntropy(*brain_.get(),
         generatedOutputs, idealOutputs);
     }
   }
 
-  void TrainOne(const std::size_t i) {
-    std::cout << "Training " << i << "\n";
+  std::pair<double,double> TrainDiscriminator(
+    Aligned32ByteRAIIStorage<double> & idealOutputs) {
+
+    double realLoss = 0.0;
+    double fakeLoss = 0.0;
+
+    generatedInputs_.clear();
+    generatedInputs_.reserve(BatchSize);
+    generatedLabels_.clear();
+    generatedLabels_.reserve(BatchSize);
+
     const auto & normalisedImages = trainingImages_.NormalisedData();
+    const auto & labels = trainingOutput_.Data();
+
     const std::size_t dimension = trainingImages_.Width();
     const std::size_t inputSize = dimension * dimension;
 
     std::vector<double> inputs(inputSize);
 
-    Aligned32ByteRAIIStorage<double> idealOutputs(1u);
+    for (std::size_t i = trainingCursor_;
+      i < trainingCursor_ + BatchSize;
+      ++i) {
 
-    const auto & data = trainingOutput_.Data();
+      const auto & label = labels[i];
 
-    const auto & normalisedImage = normalisedImages[i];
-    inputs.assign(
-      normalisedImage.inputs.get(),
-      normalisedImage.inputs.get() + inputSize);
+      const auto & normalisedImage = normalisedImages[i];
+      inputs.assign(
+        normalisedImage.inputs.get(),
+        normalisedImage.inputs.get() + inputSize);
 
-    // Want a value of 1.0 (which says it is a digit
-    // with a probability of 100%)
-    idealOutputs[0] = 1.0;
+      inputs.insert(inputs.end(), label.begin(), label.end());
 
-    brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
+      // Want a value of 1.0 (which says it is a digit
+      // with a probability of 100%)
+      idealOutputs[0] = 1.0;
 
-    const auto & outputs = data[i];
-    std::vector<double> generatorInputs = GeneratorInputs(outputs);
+      brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
 
-    auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
+      std::vector<double> generatorInputs = GeneratorInputs(label);
 
-    // Want a value of 0.0 (because it's not from the training set)
-    idealOutputs[0] = 0.0;
+      auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
 
-    brain_->BackPropagationCrossEntropy(generatedOutputs, idealOutputs);
+      // Want a value of 0.0 (because it's not from the training set)
+      idealOutputs[0] = 0.0;
 
-    // Train 100 samples on discriminator then 100 on generator
-    if (i > 0u && i % 100u == 0u) {
-      TrainGenerator(idealOutputs);
+      generatedOutputs.insert(generatedOutputs.end(),
+        label.begin(), label.end());
+
+      brain_->BackPropagationCrossEntropy(generatedOutputs, idealOutputs);
+
+      const auto & realOutputs = brain_->ProcessThreaded(inputs);
+      const auto & fakeOutputs = brain_->ProcessThreaded(generatedOutputs);
+      const double realOutputLoss = 1.0 - realOutputs[0];
+      const double fakeOutputLoss = 0.0 - fakeOutputs[0];
+
+      realLoss += std::abs(realOutputLoss);
+      fakeLoss += std::abs(fakeOutputLoss);
+#if WRITE_DEBUG
+      if (i < 10) {
+        dbgOut_ << "generated_inputs(" << i << ")={" << generatorInputs[0]
+          << ", " << generatorInputs[1] << ", " << generatorInputs[2] << ", ...}\n";
+
+        dbgOut_ << "generated_outputs(" << i << ")={" << generatedOutputs[0]
+          << ", " << generatedOutputs[1] << ", " << generatedOutputs[2] << ", ...}\n";
+
+        dbgOut_ << "output(" << i << ")=" << fakeOutputs[0] << "\n";
+      }
+
+      generatedInputs_.push_back(generatorInputs);
+      generatedLabels_.push_back(label);
+#endif
     }
+
+    return {realLoss, fakeLoss};
   }
 
   void DestroyScene() {
@@ -247,6 +255,7 @@ protected:
 
     bool useGenerated = false;
 
+    const auto & labels = classifyOutput_.Data();
     for (std::size_t i = 0; i < size && row < perRow; ++i) {
       double x = -1.0 + (cellDistanceX * column++);
       double y = -1.0 + (cellDistanceY * row);
@@ -256,13 +265,20 @@ protected:
         row++;
       }
 
-      std::unique_ptr<double[]> normalizedData(new double[normalizedSize]);
+      std::unique_ptr<double[]> normalizedData(new double[normalizedSize + 10]);
       std::unique_ptr<uint8_t[]> data(new uint8_t[pixels]);
       std::size_t dataIndex = 0;
 
       if (useGenerated) {
-        std::vector<double> generatorInputs = GeneratorInputs(
-            classifyOutput_.Data()[i]);
+#if !WRITE_DEBUG
+        const auto & label = labels[i];
+        std::vector<double> generatorInputs = GeneratorInputs(labels[i]);
+#else
+        const auto & label = generatedLabels_[i % generatedInputs_.size()];
+        const std::vector<double> & generatorInputs = generatedInputs_.size()
+          ? generatedInputs_[i % generatedInputs_.size()]
+          : GeneratorInputs(labels[i]);
+#endif
 
         auto outputs = generator_->ProcessThreaded(generatorInputs);
 
@@ -273,6 +289,9 @@ protected:
           // TODO: image orientation doesn't match outputs? [see other case]
           normalizedData[j] = outputs[j];
         }
+
+        std::copy(label.begin(), label.end(),
+          normalizedData.get() + outputs.size());
       }
       else {
         const auto & image = images[i];
@@ -287,6 +306,10 @@ protected:
               normalizedImages[i].inputs[dataIndex / 3];
           }
         }
+
+        const auto & label = labels[i];
+        std::copy(label.begin(), label.end(),
+          normalizedData.get() + normalizedSize);
       }
 
       CHECK(dataIndex == pixels);
@@ -301,13 +324,34 @@ protected:
 
     for (std::size_t i = 0u; i < objects_.size(); ++i) {
       const std::size_t dimension = classifyImages_.Width();
-      const std::size_t inputSize = dimension * dimension;
+      const std::size_t inputSize = dimension * dimension + 10;
 
       std::vector<double> inputs(
         classifyData_[i].get(),
         classifyData_[i].get() + inputSize);
 
-      auto outputs = brain_->Process(inputs);
+      auto outputs = brain_->ProcessThreaded(inputs);
+
+#if WRITE_DEBUG
+      if (i < 10) {
+        dbgOut_ << "confidence(" << i << ")=" << outputs[0] << "\n";
+
+        if (generatedInputs_.size() && i % 2 == 1) {
+          auto generatorInputs = generatedInputs_[i % generatedInputs_.size()];
+          auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
+          auto fakeOutputs = brain_->ProcessThreaded(generatedOutputs);
+
+          dbgOut_ << "generated_inputs(" << i << ")={" << generatorInputs[0]
+            << ", " << generatorInputs[1] << ", " << generatorInputs[2] << ", ...}\n";
+
+          dbgOut_ << "generated_outputs(" << i << ")={" << generatedOutputs[0]
+            << ", " << generatedOutputs[1] << ", " << generatedOutputs[2] << ", ...}\n";
+
+          dbgOut_ << "expected_confidence(" << i << ")=" << fakeOutputs[0] << "\n";
+        }
+      }
+#endif
+
       objects_[i]->Confidence(outputs[0]);
     }
   }
@@ -325,7 +369,6 @@ private:
   OpenGLContext & context_;
   std::unique_ptr<Scene> scene_;
   std::vector<std::unique_ptr<Glyph>> objects_;
-  std::size_t generation_;
   std::unique_ptr<NeuralNet> brain_;
   std::unique_ptr<NeuralNet> generator_;
   ImageFile trainingImages_;
@@ -336,9 +379,19 @@ private:
   std::size_t classifyIndex_ = 0u;
   bool recreateScene_ = false;
 
+  std::unique_ptr<GraphWindow> graphWindow_;
+  Graph::Series realLossSeries_;
+  Graph::Series fakeLossSeries_;
+
+  std::size_t iteration_ = 0u;
   std::size_t trainingCursor_ = 0u;
 
+  std::ofstream dbgOut_;
+  std::vector<std::vector<double>> generatedInputs_;
+  std::vector<std::vector<double>> generatedLabels_;
+
   const std::size_t NoiseInputs = 100u;
+  const std::size_t BatchSize = 100u;
 };
 
 }
