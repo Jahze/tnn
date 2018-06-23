@@ -7,6 +7,7 @@
 #include <sstream>
 #include <vector>
 #include <Windows.h>
+#include "graphics.h"
 #include "macros.h"
 
 class ScopedHDC {
@@ -204,4 +205,97 @@ private:
   ::HWND hwnd_;
   Limits limits_;
   std::vector<Series> series_;
+};
+
+class GraphWindow {
+public:
+  GraphWindow(const Graph::Limits & limits) {
+    static const char WindowClassName[] = "graph window class";
+    static const int WindowWidth = 600;
+    static const int WindowHeight = 600;
+
+    ::WNDCLASSEX windowClass = CreateWindowClass(WindowClassName);
+
+    if (!::RegisterClassEx(&windowClass))
+      LOG("[error] failed to register window class");
+
+    hwnd_ = ::CreateWindow(WindowClassName,
+      "graph",
+      WS_OVERLAPPEDWINDOW,
+      CW_USEDEFAULT,
+      CW_USEDEFAULT,
+      WindowWidth,
+      WindowHeight,
+      NULL,
+      NULL,
+      ::GetModuleHandle(NULL),
+      NULL);
+
+    if (!hwnd_)
+      LOG("[error] failed to create window");
+
+    context_.Create(hwnd_);
+
+    ::SetWindowLongPtr(hwnd_, GWLP_USERDATA, (LONG_PTR)this);
+    ::ShowWindow(hwnd_, SW_SHOWNORMAL);
+    ::UpdateWindow(hwnd_);
+
+    graph_ = std::make_unique<::Graph>(hwnd_, limits);
+  }
+
+  ::Graph * Graph() { return graph_.get(); }
+  OpenGLContext * Context() { return &context_; }
+
+private:
+  ::WNDCLASSEX CreateWindowClass(const char * name) {
+    ::WNDCLASSEX windowClass;
+    std::memset(&windowClass, 0, sizeof(windowClass));
+
+    windowClass.cbSize = sizeof(windowClass);
+    windowClass.lpfnWndProc = (WNDPROC)WindowProc;
+    windowClass.hInstance = ::GetModuleHandle(NULL);
+    windowClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    windowClass.lpszMenuName = NULL;
+    windowClass.lpszClassName = name;
+
+    return windowClass;
+  }
+
+  static LONG WINAPI WindowProc(HWND hwnd,
+    UINT umsg,
+    WPARAM wparam,
+    LPARAM lparam) {
+
+    GraphWindow * window =
+      (GraphWindow*)::GetWindowLongPtr(hwnd, GWLP_USERDATA);
+
+    switch (umsg) {
+    case WM_PAINT:
+    {
+      PAINTSTRUCT paint;
+      ::BeginPaint(hwnd, &paint);
+      ::EndPaint(hwnd, &paint);
+      return 1;
+    }
+
+    case WM_SIZE:
+      window->Context()->Resize();
+      break;
+
+    case WM_DESTROY:
+      window->Context()->Destroy();
+      PostQuitMessage(0);
+      return 1;
+
+    default:
+      return static_cast<LONG>(::DefWindowProc(hwnd, umsg, wparam, lparam));
+    }
+
+    return 0;
+  }
+
+private:
+  ::HWND hwnd_;
+  OpenGLContext context_;
+  std::unique_ptr<::Graph> graph_;
 };

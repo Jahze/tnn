@@ -39,6 +39,10 @@ public:
     }
   }
 
+  void MakeActive() {
+    wglMakeCurrent(hdc_, hglrc_);
+  }
+
   void Resize();
 
   void AddResizeListener(std::function<void()> listener) {
