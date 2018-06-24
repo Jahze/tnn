@@ -88,12 +88,15 @@ protected:
     if (trainingCursor_ + BatchSize >= trainingImages_.NormalisedData().size())
       trainingCursor_ = 0u;
 
+    Timer timer;
+
     Aligned32ByteRAIIStorage<double> idealOutputs(1u);
 
     const auto & loss = TrainDiscriminator(idealOutputs);
     TrainGenerator(idealOutputs);
 
-    std::cout << "Iteration " << ++iteration_ << "\n";
+    std::cout << "Iteration " << ++iteration_
+      << " [" << timer.ElapsedMicroseconds() << "]\n";
 
 #if GRAPH_LOSS
     realLossSeries_.points.push_back({ static_cast<double>(iteration_), loss.first });
@@ -204,6 +207,7 @@ protected:
 
       brain_->BackPropagationCrossEntropy(generatedOutputs, idealOutputs);
 
+#if GRAPH_LOSS
       const auto & realOutputs = brain_->ProcessThreaded(inputs);
       const auto & fakeOutputs = brain_->ProcessThreaded(generatedOutputs);
       const double realOutputLoss = 1.0 - realOutputs[0];
@@ -211,13 +215,17 @@ protected:
 
       realLoss += std::abs(realOutputLoss);
       fakeLoss += std::abs(fakeOutputLoss);
+#endif
+
 #if WRITE_DEBUG
       if (i < 10) {
         dbgOut_ << "generated_inputs(" << i << ")={" << generatorInputs[0]
-          << ", " << generatorInputs[1] << ", " << generatorInputs[2] << ", ...}\n";
+          << ", " << generatorInputs[1] << ", "
+          << generatorInputs[2] << ", ...}\n";
 
         dbgOut_ << "generated_outputs(" << i << ")={" << generatedOutputs[0]
-          << ", " << generatedOutputs[1] << ", " << generatedOutputs[2] << ", ...}\n";
+          << ", " << generatedOutputs[1] << ", "
+          << generatedOutputs[2] << ", ...}\n";
 
         dbgOut_ << "output(" << i << ")=" << fakeOutputs[0] << "\n";
       }
@@ -342,12 +350,15 @@ protected:
           auto fakeOutputs = brain_->ProcessThreaded(generatedOutputs);
 
           dbgOut_ << "generated_inputs(" << i << ")={" << generatorInputs[0]
-            << ", " << generatorInputs[1] << ", " << generatorInputs[2] << ", ...}\n";
+            << ", " << generatorInputs[1] << ", "
+            << generatorInputs[2] << ", ...}\n";
 
           dbgOut_ << "generated_outputs(" << i << ")={" << generatedOutputs[0]
-            << ", " << generatedOutputs[1] << ", " << generatedOutputs[2] << ", ...}\n";
+            << ", " << generatedOutputs[1] << ", "
+            << generatedOutputs[2] << ", ...}\n";
 
-          dbgOut_ << "expected_confidence(" << i << ")=" << fakeOutputs[0] << "\n";
+          dbgOut_ << "expected_confidence(" << i << ")="
+            << fakeOutputs[0] << "\n";
         }
       }
 #endif
