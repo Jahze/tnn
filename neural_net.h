@@ -98,7 +98,10 @@ struct NeuroneLayer {
   }
 
   void ProcessThreaded(Aligned32ByteRAIIStorage<double> & inputs) {
-    weights_.MultiplyThreaded(inputs.Get(), outputs_.Get());
+    if (size_ < 16u)
+      weights_.Multiply(inputs, outputs_);
+    else
+      weights_.MultiplyThreaded(inputs.Get(), outputs_.Get());
 
     for (std::size_t i = 0u; i < size_; ++i)
       outputs_[i] = ActivationFunction(activationType_, outputs_[i]);
