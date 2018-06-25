@@ -114,6 +114,10 @@ struct AlignedMatrix {
 
     // Initialise the unused values allocated for alignment to 0 so
     // that they don't contribute to the multiplication
+    Zero();
+  }
+
+  void Zero() {
     std::memset(values_.Get(), 0, rows_ * alignedColumns_ * sizeof(double));
   }
 
@@ -183,6 +187,48 @@ struct AlignedMatrix {
         outputs[i] = result.m256d_f64[0] + result.m256d_f64[2];
 
         values += alignedColumns_;
+      }
+    });
+
+    tasks.Run();
+  }
+
+  void Subtract(AlignedMatrix & rhs) {
+    for (std::size_t i = 0u; i < rows_; ++i) {
+
+      double * row = Row(i);
+      const double * input = rhs.Row(i);
+
+      for (std::size_t j = 0u; j < columns_; ++j)
+        row[j] -= input[j];
+    }
+  }
+
+  void SubtractThreaded(AlignedMatrix & rhs) {
+    ThreadPool * pool = GetCpuSizedThreadPool();
+
+    BatchTasks tasks(*pool);
+    tasks.CreateBatches(rows_,
+      [this, &rhs](std::size_t start, std::size_t end) {
+
+      double * values = Row(start);
+      const double * inputs = rhs.Row(start);
+
+      for (std::size_t i = start; i < end; ++i) {
+        __m256d result = _mm256_setzero_pd();
+
+        const std::size_t batches = alignedColumns_ / 4;
+        for (std::size_t j = 0u; j < batches; ++j) {
+          std::size_t stride = j * 4;
+          result = _mm256_sub_pd(
+            _mm256_load_pd(values + stride),
+            _mm256_load_pd(inputs + stride));
+
+          std::memcpy(values + stride, result.m256d_f64, sizeof(double) * 4);
+        }
+
+        values += alignedColumns_;
+        inputs += alignedColumns_;
       }
     });
 

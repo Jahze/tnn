@@ -43,6 +43,7 @@ struct NeuroneLayer {
   const std::size_t weightsPerNeurone_;
   AlignedMatrix weights_;
   AlignedMatrix transpose_;
+  AlignedMatrix weightsDelta_;
   Aligned32ByteRAIIStorage<double> outputs_;
   Aligned32ByteRAIIStorage<double> dLoss_dNet_;
   double * inputs_;
@@ -57,6 +58,7 @@ struct NeuroneLayer {
     outputs_.Reset(size_ + 1);
     weights_.Reset(size, weightsPerNeurone_);
     transpose_.Reset(size, weightsPerNeurone_);
+    weightsDelta_.Reset(size, weightsPerNeurone_);
 
     std::memset(outputs_.Get(), 0, sizeof(double) * outputs_.Size());
 
@@ -110,11 +112,22 @@ struct NeuroneLayer {
 
     inputs_ = inputs.Get();
   }
+
+  void CommitDeltas() {
+    if (size_ < 16u)
+      weights_.Subtract(weightsDelta_);
+    else
+      weights_.SubtractThreaded(weightsDelta_);
+
+    weightsDelta_.Zero();
+  }
 };
 
 class NeuralNet {
 public:
   const static double kThresholdBias;
+
+  enum class UpdateType { Stochastic, Batched };
 
   NeuralNet(std::size_t inputs,
     std::size_t outputs,
@@ -231,6 +244,10 @@ public:
 
   void SetOutputLayerActivationType(ActivationType type) {
     layers_[hiddenLayers_].activationType_ = type;
+  }
+
+  void SetUpdateType(UpdateType type) {
+    updateType_ = type;
   }
 
   void BackPropagation(const std::vector<double> & inputs,
@@ -409,6 +426,11 @@ public:
     UpdateWeights();
   }
 
+  void CommitDeltas() {
+    for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i)
+      layers_[i].CommitDeltas();
+  }
+
   // TODO: debugging temp
   const std::vector<NeuroneLayer> & Layers() const { return layers_; }
 
@@ -435,37 +457,74 @@ private:
 
       auto & layer = layers_[current];
 
-      BatchTasks tasks2(*pool);
-      tasks2.CreateBatches(layer.size_, [this, &layer]
-        (std::size_t start, std::size_t end) {
+      using namespace std::placeholders;
 
-        const double LearningRate = learningRate_;
+      BatchTasks tasks(*pool);
+      tasks.CreateBatches(layer.size_, updateType_ == UpdateType::Stochastic
+        ? std::bind(&NeuralNet::UpdateWeightsStochastic,
+            this, std::ref(layer), _1, _2)
+        : std::bind(&NeuralNet::UpdateWeightsBatched,
+            this, std::ref(layer), _1, _2));
 
-        // dLoss/dWeight = dLoss/dOut * dOut/dNet * dNet/dWeight
+      tasks.Run();
+    }
+  }
 
-        const double * dLoss_dNet = layer.dLoss_dNet_.Get();
-        const double * dNet_dWeights = layer.inputs_;
+  void UpdateWeightsStochastic(NeuroneLayer & layer,
+      std::size_t start, std::size_t end) {
 
-        for (std::size_t k = start; k < end; ++k) {
-          auto & neurone = layer.Neurones(k);
-          const std::size_t inputs = layer.weightsPerNeurone_;
+    const double LearningRate = learningRate_;
 
+    // dLoss/dWeight = dLoss/dOut * dOut/dNet * dNet/dWeight
 
-          __m256d scalar = _mm256_set1_pd(LearningRate * dLoss_dNet[k]);
+    const double * dLoss_dNet = layer.dLoss_dNet_.Get();
+    const double * dNet_dWeights = layer.inputs_;
 
-          const std::size_t batches = AlignTo32Bytes<double>(inputs) / 4;
-          for (std::size_t l = 0; l < batches; ++l) {
-            __m256d dNet_dWeight = _mm256_load_pd(dNet_dWeights + (l * 4));
-            __m256d product = _mm256_mul_pd(dNet_dWeight, scalar);
-            __m256d neuroneWeights = _mm256_load_pd(neurone.ptr_ + (l * 4));
-            __m256d result = _mm256_sub_pd(neuroneWeights, product);
-            std::memcpy(neurone.ptr_ + (l * 4),
-              result.m256d_f64, sizeof(double) * 4);
-          }
-        }
-      });
+    for (std::size_t k = start; k < end; ++k) {
+      auto & neurone = layer.Neurones(k);
+      const std::size_t inputs = layer.weightsPerNeurone_;
 
-      tasks2.Run();
+      __m256d learningRate = _mm256_set1_pd(LearningRate * dLoss_dNet[k]);
+
+      const std::size_t batches = AlignTo32Bytes<double>(inputs) / 4;
+      for (std::size_t l = 0; l < batches; ++l) {
+        __m256d dNet_dWeight = _mm256_load_pd(dNet_dWeights + (l * 4));
+        __m256d product = _mm256_mul_pd(dNet_dWeight, learningRate);
+        __m256d neuroneWeights = _mm256_load_pd(neurone.ptr_ + (l * 4));
+        __m256d result = _mm256_sub_pd(neuroneWeights, product);
+        std::memcpy(neurone.ptr_ + (l * 4),
+          result.m256d_f64, sizeof(double) * 4);
+      }
+    }
+  }
+
+  void UpdateWeightsBatched(NeuroneLayer & layer,
+      std::size_t start, std::size_t end) {
+
+    const double LearningRate = learningRate_;
+
+    // dLoss/dWeight = dLoss/dOut * dOut/dNet * dNet/dWeight
+
+    const double * dLoss_dNet = layer.dLoss_dNet_.Get();
+    const double * dNet_dWeights = layer.inputs_;
+
+    for (std::size_t k = start; k < end; ++k) {
+      auto & neurone = layer.Neurones(k);
+      const std::size_t inputs = layer.weightsPerNeurone_;
+
+      double * weightDelta = layer.weightsDelta_.Row(k);
+
+      __m256d learningRate = _mm256_set1_pd(LearningRate * dLoss_dNet[k]);
+
+      const std::size_t batches = AlignTo32Bytes<double>(inputs) / 4;
+      for (std::size_t l = 0; l < batches; ++l) {
+        __m256d dNet_dWeight = _mm256_load_pd(dNet_dWeights + (l * 4));
+        __m256d product = _mm256_mul_pd(dNet_dWeight, learningRate);
+        __m256d lastWeights = _mm256_load_pd(weightDelta + (l * 4));
+        __m256d nextWeights = _mm256_add_pd(lastWeights, product);
+        std::memcpy(weightDelta + (l * 4),
+          nextWeights.m256d_f64, sizeof(double) * 4);
+      }
     }
   }
 
@@ -533,6 +592,7 @@ private:
 
   Aligned32ByteRAIIStorage<double> inputsStorage_;
 
+  UpdateType updateType_ = UpdateType::Stochastic;
   double learningRate_ = 0.5;
 };
 

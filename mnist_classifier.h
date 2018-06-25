@@ -143,6 +143,8 @@ protected:
         //};
 
         brain_->BackPropagationThreaded(inputs, idealOutputs);
+        if (i > 0 && i % 100u == 0)
+          brain_->CommitDeltas();
 
         if (progress > one_hundredth) {
           progress = 0u;
@@ -158,8 +160,11 @@ protected:
       std::cout << "Took " << totalTrainingTimer.ElapsedSeconds() << "s\n";
     };
 
-    TrainNeuralNet(brain_.get(), TrainFunction,
-      SteppingLearningRate{0.5, 0.1}, 1);
+    brain_->SetUpdateType(NeuralNet::UpdateType::Batched);
+    brain_->SetLearningRate(0.001);
+    TrainFunction();
+    //TrainNeuralNet(brain_.get(), TrainFunction,
+    //  SteppingLearningRate{0.5, 0.1}, 1);
   }
 
   void Classify() {
