@@ -330,7 +330,7 @@ public:
 
     const auto & outputs = net.ProcessThreaded(inputs);
 
-    const std::size_t length = layers_.back().size_;
+    const std::size_t length = net.layers_.back().size_;
     const std::size_t batchSize = inputs.size();
 
     net.layers_.back().dLoss_dNet_.Reset(batchSize, length);
