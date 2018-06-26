@@ -168,8 +168,6 @@ protected:
 
     brain_->SetLearningRate(0.001);
     TrainFunction();
-    //TrainNeuralNet(brain_.get(), TrainFunction,
-    //  SteppingLearningRate{0.5, 0.1}, 1);
   }
 
   void Classify() {
