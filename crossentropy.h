@@ -49,8 +49,8 @@ protected:
     const double min = xmin_;
     const double max = xmax_;
     double increment = (max - min) / cases;
-    std::vector<double> inputs(1);
-    Aligned32ByteRAIIStorage<double> idealOutputs(1);
+    std::vector<double> inputs(1u);
+    std::vector<double> idealOutputs(1u);
 
     std::vector<double> trainingInputs;
     for (double input = min; input < max; input += increment)
@@ -64,7 +64,7 @@ protected:
         inputs[0] = normalisedValue;
         idealOutputs[0] = TargetFunction(input);
         //brain_->BackPropagationThreaded(inputs, idealOutputs);
-        brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
+        brain_->BackPropagationCrossEntropy({inputs}, {idealOutputs});
       }
       epochs_++;
     }

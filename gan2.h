@@ -90,7 +90,7 @@ protected:
 
     Timer timer;
 
-    Aligned32ByteRAIIStorage<double> idealOutputs(1u);
+    std::vector<double> idealOutputs(1u);
 
     const auto & loss = TrainDiscriminator(idealOutputs);
     TrainGenerator(idealOutputs);
@@ -136,7 +136,7 @@ protected:
     return generatorInputs;
   }
 
-  void TrainGenerator(Aligned32ByteRAIIStorage<double> & idealOutputs) {
+  void TrainGenerator(std::vector<double> & idealOutputs) {
     const auto & labels = trainingOutput_.Data();
 
     for (std::size_t i = trainingCursor_;
@@ -153,12 +153,12 @@ protected:
         label.begin(), label.end());
 
       generator_->BackPropagationCrossEntropy(*brain_.get(),
-        generatedOutputs, idealOutputs);
+        {generatedOutputs}, {idealOutputs});
     }
   }
 
   std::pair<double,double> TrainDiscriminator(
-    Aligned32ByteRAIIStorage<double> & idealOutputs) {
+      std::vector<double> & idealOutputs) {
 
     double realLoss = 0.0;
     double fakeLoss = 0.0;
@@ -193,7 +193,7 @@ protected:
       // with a probability of 100%)
       idealOutputs[0] = 1.0;
 
-      brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
+      brain_->BackPropagationCrossEntropy({inputs}, {idealOutputs});
 
       std::vector<double> generatorInputs = GeneratorInputs(label);
 
@@ -205,7 +205,7 @@ protected:
       generatedOutputs.insert(generatedOutputs.end(),
         label.begin(), label.end());
 
-      brain_->BackPropagationCrossEntropy(generatedOutputs, idealOutputs);
+      brain_->BackPropagationCrossEntropy({generatedOutputs}, {idealOutputs});
 
 #if GRAPH_LOSS
       const auto & realOutputs = brain_->ProcessThreaded(inputs);

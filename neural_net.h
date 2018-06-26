@@ -278,8 +278,9 @@ public:
     layers_[hiddenLayers_].activationType_ = type;
   }
 
-  void BackPropagationThreaded(const std::vector<std::vector<double>> & inputs,
-    const std::vector<std::vector<double>> & idealOutputs) {
+  void BackPropagationThreaded(
+      const std::vector<std::vector<double>> & inputs,
+      const std::vector<std::vector<double>> & idealOutputs) {
 
     const auto & outputs = ProcessThreaded(inputs);
 
@@ -299,27 +300,24 @@ public:
     UpdateWeights();
   }
 
-  void BackPropagationCrossEntropy(const std::vector<double> & inputs,
-      Aligned32ByteRAIIStorage<double> & idealOutputs) {
+  void BackPropagationCrossEntropy(
+      const std::vector<std::vector<double>> & inputs,
+      const std::vector<std::vector<double>> & idealOutputs) {
 
     const auto & outputs = ProcessThreaded(inputs);
 
-    const std::size_t length = outputs.size();
-    const std::size_t inputCount = 1u;
+    const std::size_t length = layers_.back().size_;
+    const std::size_t batchSize = inputs.size();
 
-    layers_[hiddenLayers_].dLoss_dNet_.Reset(inputCount, length);
+    layers_.back().dLoss_dNet_.Reset(batchSize, length);
 
-    for (std::size_t i = 0u; i < inputCount; ++i) {
-      double * dLoss_dNet = layers_[hiddenLayers_].dLoss_dNet_[i];
-
-      // TODO: needed?
-      //std::memset(dLoss_dNet, 0,
-      //  sizeof(double) * layers_[hiddenLayers_].dLoss_dNet_[i].alignedColumns_);
+    for (std::size_t i = 0u; i < batchSize; ++i) {
+      double * dLoss_dNet = layers_.back().dLoss_dNet_[i];
 
       // cross-entropy loss
       // https://www.ics.uci.edu/~pjsadows/notes.pdf
-      for (std::size_t i = 0u; i < length; ++i)
-        dLoss_dNet[i] = (outputs[i] - idealOutputs[i]);
+      for (std::size_t j = 0u; j < length; ++j)
+        dLoss_dNet[j] = (outputs[i][j] - idealOutputs[i][j]);
     }
 
     CalculateGradients();
@@ -327,34 +325,36 @@ public:
   }
 
   void BackPropagationCrossEntropy(NeuralNet & net,
-      const std::vector<double> & inputs,
-      Aligned32ByteRAIIStorage<double> & idealOutputs) {
+      const std::vector<std::vector<double>> & inputs,
+      const std::vector<std::vector<double>> & idealOutputs) {
 
-    return;
-    //const auto & outputs = net.ProcessThreaded(inputs);
+    const auto & outputs = net.ProcessThreaded(inputs);
 
-    //const std::size_t length = outputs.size();
+    const std::size_t length = layers_.back().size_;
+    const std::size_t batchSize = inputs.size();
 
-    //net.layers_[hiddenLayers_].dLoss_dNet_.Reset(length);
-    //double * dLoss_dNet = net.layers_[hiddenLayers_].dLoss_dNet_.Get();
+    net.layers_.back().dLoss_dNet_.Reset(batchSize, length);
 
-    //// cross-entropy loss
-    //// https://www.ics.uci.edu/~pjsadows/notes.pdf
-    //for (std::size_t i = 0u; i < length; ++i)
-    //  dLoss_dNet[i] = (outputs[i] - idealOutputs[i]);
+    for (std::size_t i = 0u; i < batchSize; ++i) {
+      double * dLoss_dNet = net.layers_.back().dLoss_dNet_[i];
 
-    //// Calculate dLoss_dNet for discriminator
-    //net.CalculateGradients();
+      // cross-entropy loss
+      // https://www.ics.uci.edu/~pjsadows/notes.pdf
+      for (std::size_t j = 0u; j < length; ++j)
+        dLoss_dNet[j] = (outputs[i][j] - idealOutputs[i][j]);
+    }
 
-    //// Get final loss to calculate genertor dLoss_dNet
-    //AlignedMatrix lastLoss;
-    //net.CalculateLoss(0, lastLoss);
+    // Calculate dLoss_dNet for discriminator
+    net.CalculateGradients();
 
-    //Calculate_dLoss_dNet(hiddenLayers_, lastLoss);
+    // Get final loss to calculate genertor dLoss_dNet
+    AlignedMatrix lastLoss;
+    net.CalculateLoss(0, lastLoss);
 
-    //// TODO: segfault here sometimes
-    //CalculateGradients();
-    //UpdateWeights();
+    Calculate_dLoss_dNet(hiddenLayers_, lastLoss);
+
+    CalculateGradients();
+    UpdateWeights();
   }
 
   // TODO: debugging temp
