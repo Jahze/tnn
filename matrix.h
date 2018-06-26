@@ -153,12 +153,22 @@ struct AlignedMatrix {
     std::size_t weightsIndex = 0;
 
     for (std::size_t i = 0u; i < rows_; ++i) {
-      outputs[i] = 0.0;
+      __m256d result = _mm256_setzero_pd();
 
       const double * row = Row(i);
+      const double * inputPtr = inputs.Get();
 
-      for (std::size_t j = 0u; j < columns_; ++j)
-        outputs[i] += inputs[j] * row[j];
+      const std::size_t batches = alignedColumns_ / 4;
+      for (std::size_t j = 0u; j < batches; ++j) {
+        std::size_t stride = j * 4;
+        result = _mm256_add_pd(result, _mm256_mul_pd(
+          _mm256_load_pd(inputPtr + stride),
+          _mm256_load_pd(row + stride)));
+      }
+
+      result = _mm256_hadd_pd(result, result);
+
+      outputs[i] = result.m256d_f64[0] + result.m256d_f64[2];
     }
   }
 
