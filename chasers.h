@@ -448,7 +448,7 @@ protected:
         return -(idealOutputs[i] - value);
       };
 
-      brain_.BackPropagation(inputs, lossFunction);
+      // BATCH: brain_.BackPropagation(inputs, lossFunction);
     }
 
     for (auto && object : objects_)
