@@ -132,8 +132,6 @@ class NeuralNet {
 public:
   const static double kThresholdBias;
 
-  enum class UpdateType { Stochastic, Batched };
-
   NeuralNet(std::size_t inputs,
     std::size_t outputs,
     std::size_t hiddenLayers,
@@ -278,10 +276,6 @@ public:
 
   void SetOutputLayerActivationType(ActivationType type) {
     layers_[hiddenLayers_].activationType_ = type;
-  }
-
-  void SetUpdateType(UpdateType type) {
-    updateType_ = type;
   }
 
   void BackPropagation(const std::vector<double> & inputs,
@@ -452,11 +446,6 @@ public:
     //UpdateWeights();
   }
 
-  void CommitDeltas() {
-    for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i)
-      layers_[i].CommitDeltas();
-  }
-
   // TODO: debugging temp
   const std::vector<NeuroneLayer> & Layers() const { return layers_; }
 
@@ -477,6 +466,8 @@ private:
 
     ThreadPool * pool = GetCpuSizedThreadPool();
 
+    const std::size_t batchSize = layers_.back().outputs_.rows_;
+
     for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
       // Go backwards through the layers
       const std::size_t current = hiddenLayers_ - i;
@@ -486,13 +477,16 @@ private:
       using namespace std::placeholders;
 
       BatchTasks tasks(*pool);
-      tasks.CreateBatches(layer.size_, updateType_ == UpdateType::Stochastic
+      tasks.CreateBatches(layer.size_, batchSize == 1u
         ? std::bind(&NeuralNet::UpdateWeightsStochastic,
             this, std::ref(layer), _1, _2)
         : std::bind(&NeuralNet::UpdateWeightsBatched,
             this, std::ref(layer), _1, _2));
 
       tasks.Run();
+
+      if (batchSize > 1u)
+        layer.CommitDeltas();
     }
   }
 
@@ -635,7 +629,6 @@ private:
 
   AlignedMatrix inputsStorage_;
 
-  UpdateType updateType_ = UpdateType::Stochastic;
   double learningRate_ = 0.5;
 };
 

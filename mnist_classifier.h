@@ -149,7 +149,6 @@ protected:
 
         if (batchItem == BatchSize) {
           brain_->BackPropagationThreaded(batch, idealOutputs);
-          brain_->CommitDeltas();
           batchItem = 0u;
         }
 
@@ -167,7 +166,6 @@ protected:
       std::cout << "Took " << totalTrainingTimer.ElapsedSeconds() << "s\n";
     };
 
-    brain_->SetUpdateType(NeuralNet::UpdateType::Batched);
     brain_->SetLearningRate(0.001);
     TrainFunction();
     //TrainNeuralNet(brain_.get(), TrainFunction,
