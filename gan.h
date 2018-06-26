@@ -158,7 +158,7 @@ protected:
         std::memcpy(idealOutputs.Get(), outputs.data(), 10u * sizeof(double));
         idealOutputs[10] = 0.0;
 
-        brain_->BackPropagationThreaded(inputs, idealOutputs);
+        //BATCH: brain_->BackPropagationThreaded(inputs, idealOutputs);
 
         std::vector<double> generatorInputs = GeneratorInputs(outputs);
 
@@ -170,7 +170,7 @@ protected:
         std::memset(idealOutputs.Get(), 0, 10u * sizeof(double));
         idealOutputs[10] = 1.0;
 
-        brain_->BackPropagationThreaded(generatedOutputs, idealOutputs);
+        //BATCH: brain_->BackPropagationThreaded(generatedOutputs, idealOutputs);
 
         // TODO: take the loss function before backpropping this case as not
         // a sample -> is this right?

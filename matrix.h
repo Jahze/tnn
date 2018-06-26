@@ -81,7 +81,7 @@ private:
 inline void SIMDMultiply(
   const double * lhs,
   const double * rhs,
-  Aligned32ByteRAIIStorage<double> & dest,
+  double * dest,
   std::size_t size) {
 
   const std::size_t batches = AlignTo32Bytes<double>(size) / 4;
@@ -89,7 +89,7 @@ inline void SIMDMultiply(
     __m256d l = _mm256_load_pd(lhs + (k * 4));
     __m256d r = _mm256_load_pd(rhs + (k * 4));
     __m256d result = _mm256_mul_pd(l, r);
-    std::memcpy(dest.Get() + (k * 4),
+    std::memcpy(dest + (k * 4),
       result.m256d_f64, sizeof(double) * 4);
   }
 }
@@ -132,6 +132,15 @@ struct AlignedMatrix {
     }
   }
 
+  AlignedMatrix Clone() {
+    AlignedMatrix clone{rows_, columns_};
+
+    std::memcpy(clone.values_.Get(), values_.Get(),
+      rows_ * alignedColumns_ * sizeof(double));
+
+    return std::move(clone);
+  }
+
   double * Row(std::size_t row) {
     return values_.Get() + (row * alignedColumns_);
   }
@@ -139,6 +148,9 @@ struct AlignedMatrix {
   const double * Row(std::size_t row) const {
     return values_.Get() + (row * alignedColumns_);
   }
+
+  double * operator[](std::size_t row) { return Row(row); }
+  const double * operator[](std::size_t row) const { return Row(row); }
 
   double & Value(std::size_t row, std::size_t column) {
     return Row(row)[column];
@@ -148,55 +160,64 @@ struct AlignedMatrix {
     return Row(row)[column];
   }
 
-  void Multiply(const Aligned32ByteRAIIStorage<double> & inputs,
-      Aligned32ByteRAIIStorage<double> & outputs) const {
-    std::size_t weightsIndex = 0;
+  void Multiply(const AlignedMatrix & inputs, AlignedMatrix & outputs) const {
+    // NB: we treat the rows of 'inputs' as if they were columns
+    for (std::size_t inputRow = 0u; inputRow < inputs.rows_; ++inputRow) {
+      const double * inputPtr = inputs.Row(inputRow);
+      double * outputPtr = outputs.Row(inputRow);
 
-    for (std::size_t i = 0u; i < rows_; ++i) {
-      __m256d result = _mm256_setzero_pd();
-
-      const double * row = Row(i);
-      const double * inputPtr = inputs.Get();
-
-      const std::size_t batches = alignedColumns_ / 4;
-      for (std::size_t j = 0u; j < batches; ++j) {
-        std::size_t stride = j * 4;
-        result = _mm256_add_pd(result, _mm256_mul_pd(
-          _mm256_load_pd(inputPtr + stride),
-          _mm256_load_pd(row + stride)));
-      }
-
-      result = _mm256_hadd_pd(result, result);
-
-      outputs[i] = result.m256d_f64[0] + result.m256d_f64[2];
-    }
-  }
-
-  void MultiplyThreaded(double * inputs, double * outputs) const {
-    ThreadPool * pool = GetCpuSizedThreadPool();
-
-    BatchTasks tasks(*pool);
-    tasks.CreateBatches(rows_,
-      [this, inputs, outputs](std::size_t start, std::size_t end) {
-
-      const double * values = Row(start);
-
-      for (std::size_t i = start; i < end; ++i) {
+      for (std::size_t i = 0u; i < rows_; ++i) {
         __m256d result = _mm256_setzero_pd();
+
+        const double * row = Row(i);
 
         const std::size_t batches = alignedColumns_ / 4;
         for (std::size_t j = 0u; j < batches; ++j) {
           std::size_t stride = j * 4;
           result = _mm256_add_pd(result, _mm256_mul_pd(
-            _mm256_load_pd(inputs + stride),
-            _mm256_load_pd(values + stride)));
+            _mm256_load_pd(inputPtr + stride),
+            _mm256_load_pd(row + stride)));
         }
 
         result = _mm256_hadd_pd(result, result);
 
-        outputs[i] = result.m256d_f64[0] + result.m256d_f64[2];
+        outputPtr[i] = result.m256d_f64[0] + result.m256d_f64[2];
+      }
+    }
+  }
 
-        values += alignedColumns_;
+  void MultiplyThreaded(const AlignedMatrix & inputs,
+      AlignedMatrix & outputs) const {
+
+    ThreadPool * pool = GetCpuSizedThreadPool();
+
+    BatchTasks tasks(*pool);
+    tasks.CreateBatches(rows_,
+      [this, &inputs, &outputs](std::size_t start, std::size_t end) {
+
+      for (std::size_t inputRow = 0u; inputRow < inputs.rows_; ++inputRow) {
+        const double * inputPtr = inputs[inputRow];
+        double * outputPtr = outputs[inputRow];
+
+        const double * values = Row(start);
+
+        for (std::size_t i = start; i < end; ++i) {
+          __m256d result = _mm256_setzero_pd();
+
+          const std::size_t batches = alignedColumns_ / 4;
+          for (std::size_t j = 0u; j < batches; ++j) {
+            std::size_t stride = j * 4;
+            result = _mm256_add_pd(result, _mm256_mul_pd(
+              _mm256_load_pd(inputPtr + stride),
+              _mm256_load_pd(values + stride)));
+          }
+
+          result = _mm256_hadd_pd(result, result);
+
+          outputPtr[i] = result.m256d_f64[0] + result.m256d_f64[2];
+
+          values += alignedColumns_;
+        }
       }
     });
 

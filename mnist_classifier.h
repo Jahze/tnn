@@ -112,7 +112,15 @@ protected:
 
       const auto & data = trainingOutput_.Data();
 
-      std::vector<double> inputs(inputSize);
+      const std::size_t BatchSize = 100u;
+
+      std::vector<std::vector<double>> batch(BatchSize);
+      std::vector<std::vector<double>> idealOutputs(BatchSize);
+
+      for (std::size_t i = 0u; i < BatchSize; ++i) {
+        batch[i].resize(inputSize);
+        idealOutputs[i].resize(10u);
+      }
 
       std::cout << "Training.....0%";
 
@@ -124,27 +132,26 @@ protected:
       Timer totalTrainingTimer;
       Timer trainingTimer;
 
-      Aligned32ByteRAIIStorage<double> idealOutputs(10u);
+      std::size_t batchItem = 0u;
 
       for (std::size_t i = 0u; i < length; ++i, ++progress) {
         const auto & normalisedImage = normalisedImages[i];
 
-        inputs.assign(
+        batch[batchItem].assign(
           normalisedImage.inputs.get(),
           normalisedImage.inputs.get() + inputSize);
 
         const auto & outputs = data[i];
-        std::memcpy(idealOutputs.Get(), outputs.data(), 10u * sizeof(double));
+        std::memcpy(idealOutputs[batchItem].data(),
+          outputs.data(), 10u * sizeof(double));
 
-        // This is cross-entropy? (derivative might be incorrect)
-        // But if ideal value is 0 it says there is no loss?
-        //auto lossFunction = [&outputs](double value, std::size_t idx) {
-        //  return -(value/outputs[idx]);
-        //};
+        batchItem++;
 
-        brain_->BackPropagationThreaded(inputs, idealOutputs);
-        if (i > 0 && i % 100u == 0)
+        if (batchItem == BatchSize) {
+          brain_->BackPropagationThreaded(batch, idealOutputs);
           brain_->CommitDeltas();
+          batchItem = 0u;
+        }
 
         if (progress > one_hundredth) {
           progress = 0u;
