@@ -83,6 +83,11 @@ struct NeuroneLayer {
     return weights_.Row(i);
   }
 
+  AlignedMatrix & TransposeWeights() {
+    weights_.Transpose(transpose_);
+    return transpose_;
+  }
+
   double Weights(std::size_t i, std::size_t j) const {
     return weights_.Value(i, j);
   }
@@ -246,15 +251,15 @@ public:
     CHECK(cursor == weights.data() + weights.size());
   }
 
-  void SerializeWeights() {
-    std::ofstream file("weights.txt");
+  void SerializeWeights(const std::string & filename) {
+    std::ofstream file(filename);
     for (auto && weight : GetWeights())
       file << weight << "\n";
   }
 
-  void DeserializeWeights() {
+  void DeserializeWeights(const std::string & filename) {
     std::vector<double> weights;
-    std::ifstream file("weights.txt");
+    std::ifstream file(filename);
     while (!file.eof()) {
       std::string line;
       std::getline(file, line);
@@ -456,8 +461,7 @@ private:
         //  __m256d product = _mm256_mul_pd(dNet_dWeight, learningRate);
         //  __m256d lastWeights = _mm256_load_pd(weightDelta + (l * 4));
         //  __m256d nextWeights = _mm256_add_pd(lastWeights, product);
-        //  std::memcpy(weightDelta + (l * 4),
-        //    nextWeights.m256d_f64, sizeof(double) * 4);
+        //  _mm256_store_pd(weightDelta + (l * 4), nextWeights);
         //}
 
         // NB: vector instructions make this loop slightly slower
@@ -519,12 +523,14 @@ private:
 
     loss.Reset(batchSize, prevLayerSize);
 
+    const AlignedMatrix & transposedWeights = layer.TransposeWeights();
+
     for (std::size_t input = 0u; input < batchSize; ++input) {
       double * dLoss_dNet = layer.dLoss_dNet_[input];
 
       for (std::size_t i = 0u; i < prevLayerSize; ++i) {
         for (std::size_t j = 0u; j < layerSize; ++j) {
-          loss[input][i] += dLoss_dNet[j] * layer.Weights(j, i);
+          loss[input][i] += dLoss_dNet[j] * transposedWeights[i][j];
         }
       }
     }

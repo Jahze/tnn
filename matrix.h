@@ -95,18 +95,23 @@ inline void SIMDMultiply(
 }
 
 struct AlignedMatrix {
-  std::size_t rows_;
-  std::size_t columns_;
+  std::size_t rows_ = 0u;
+  std::size_t columns_ = 0u;
   std::size_t alignedColumns_;
   Aligned32ByteRAIIStorage<double> values_;
 
-  AlignedMatrix() : rows_(0u), columns_(0u) {}
+  AlignedMatrix() {}
 
   AlignedMatrix(std::size_t rows, std::size_t columns) {
     Reset(rows, columns);
   }
 
   void Reset(std::size_t rows, std::size_t columns) {
+    if (rows == rows_ && columns == columns_) {
+      Zero();
+      return;
+    }
+
     rows_ = rows;
     columns_ = columns;
     alignedColumns_ = AlignTo32Bytes<double>(columns_);

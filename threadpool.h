@@ -69,7 +69,7 @@ public:
     if (jobs_.empty())
       return false;
 
-    job = jobs_.front();
+    job = std::move(jobs_.front());
     jobs_.pop();
     return true;
   }
