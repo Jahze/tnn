@@ -5,7 +5,6 @@
 #include "graphics.h"
 #include "mnist.h"
 
-#define WRITE_DEBUG 0
 #define GRAPH_LOSS 0
 
 namespace mnist {
@@ -20,8 +19,6 @@ public:
       const std::string & classifyLabels)
     : ::SimpleSimulation(msPerFrame)
     , context_(context), rng_(random_()) {
-
-    dbgOut_.open("debug.txt");
 
     scene_.reset(new Scene());
 
@@ -59,6 +56,14 @@ public:
     context.AddResizeListener([this](){
       recreateScene_ = true; });
 
+    brain_->DeserializeWeights("discriminator-weights.txt");
+    generator_->DeserializeWeights("generator-weights.txt");
+
+    context.AddDestroyListener([this](){
+      brain_->SerializeWeights("discriminator-weights.txt");
+      generator_->SerializeWeights("generator-weights.txt");
+    });
+
 #if GRAPH_LOSS
     Graph::Limits limits;
     limits.xmin = 0.0; limits.xmax = 1000.0;
@@ -90,7 +95,9 @@ protected:
 
     Timer timer;
 
-    std::vector<double> idealOutputs(1u);
+    std::vector<std::vector<double>> idealOutputs(BatchSize);
+    for (auto && element : idealOutputs)
+      element.reserve(1u);
 
     const auto & loss = TrainDiscriminator(idealOutputs);
     TrainGenerator(idealOutputs);
@@ -136,37 +143,35 @@ protected:
     return generatorInputs;
   }
 
-  void TrainGenerator(std::vector<double> & idealOutputs) {
+  void TrainGenerator(std::vector<std::vector<double>> & idealOutputs) {
     const auto & labels = trainingOutput_.Data();
 
-    for (std::size_t i = trainingCursor_;
-      i < trainingCursor_ + BatchSize;
-      ++i) {
-      const auto & label = labels[i];
+    std::vector<std::vector<double>> inputs(BatchSize);
+
+    for (std::size_t i = 0u; i < BatchSize; ++i) {
+      const std::size_t trainingCursor = trainingCursor_ + i;
+
+      const auto & label = labels[trainingCursor];
 
       auto generatorInputs = GeneratorInputs(label);
-      auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
 
-      idealOutputs[0] = 1.0;
+      inputs[i] = std::move(generator_->ProcessThreaded(generatorInputs));
+      inputs[i].insert(inputs[i].end(), label.begin(), label.end());
 
-      generatedOutputs.insert(generatedOutputs.end(),
-        label.begin(), label.end());
-
-      generator_->BackPropagationCrossEntropy(*brain_.get(),
-        {generatedOutputs}, {idealOutputs});
+      idealOutputs[i][0] = 1.0;
     }
+
+    generator_->BackPropagationCrossEntropy(*brain_.get(),
+      inputs, idealOutputs);
+
+    trainingCursor_ += 100u;
   }
 
   std::pair<double,double> TrainDiscriminator(
-      std::vector<double> & idealOutputs) {
+      std::vector<std::vector<double>> & idealOutputs) {
 
     double realLoss = 0.0;
     double fakeLoss = 0.0;
-
-    generatedInputs_.clear();
-    generatedInputs_.reserve(BatchSize);
-    generatedLabels_.clear();
-    generatedLabels_.reserve(BatchSize);
 
     const auto & normalisedImages = trainingImages_.NormalisedData();
     const auto & labels = trainingOutput_.Data();
@@ -174,39 +179,46 @@ protected:
     const std::size_t dimension = trainingImages_.Width();
     const std::size_t inputSize = dimension * dimension;
 
-    std::vector<double> inputs(inputSize);
+    std::vector<std::vector<double>> inputs(BatchSize);
+    for (std::size_t i = 0u; i < BatchSize; ++i)
+      inputs[i].resize(inputSize);
 
-    for (std::size_t i = trainingCursor_;
-      i < trainingCursor_ + BatchSize;
-      ++i) {
+    for (std::size_t i = 0u; i < BatchSize; ++i) {
+      const std::size_t trainingCursor = trainingCursor_ + i;
 
-      const auto & label = labels[i];
+      const auto & label = labels[trainingCursor];
 
-      const auto & normalisedImage = normalisedImages[i];
-      inputs.assign(
+      const auto & normalisedImage = normalisedImages[trainingCursor];
+      inputs[i].assign(
         normalisedImage.inputs.get(),
         normalisedImage.inputs.get() + inputSize);
 
-      inputs.insert(inputs.end(), label.begin(), label.end());
+      inputs[i].insert(inputs[i].end(), label.begin(), label.end());
 
       // Want a value of 1.0 (which says it is a digit
       // with a probability of 100%)
-      idealOutputs[0] = 1.0;
+      idealOutputs[i][0] = 1.0;
+    }
 
-      brain_->BackPropagationCrossEntropy({inputs}, {idealOutputs});
+    brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
+
+    for (std::size_t i = 0u; i < BatchSize; ++i) {
+      const std::size_t trainingCursor = trainingCursor_ + i;
+
+      const auto & label = labels[trainingCursor];
 
       std::vector<double> generatorInputs = GeneratorInputs(label);
 
-      auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
+      inputs[i] = std::move(generator_->ProcessThreaded(generatorInputs));
+      inputs[i].insert(inputs[i].end(), label.begin(), label.end());
 
       // Want a value of 0.0 (because it's not from the training set)
-      idealOutputs[0] = 0.0;
+      idealOutputs[i][0] = 0.0;
+    }
 
-      generatedOutputs.insert(generatedOutputs.end(),
-        label.begin(), label.end());
+    brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
 
-      brain_->BackPropagationCrossEntropy({generatedOutputs}, {idealOutputs});
-
+    trainingCursor_ += 100u;
 #if GRAPH_LOSS
       const auto & realOutputs = brain_->ProcessThreaded(inputs);
       const auto & fakeOutputs = brain_->ProcessThreaded(generatedOutputs);
@@ -216,24 +228,6 @@ protected:
       realLoss += std::abs(realOutputLoss);
       fakeLoss += std::abs(fakeOutputLoss);
 #endif
-
-#if WRITE_DEBUG
-      if (i < 10) {
-        dbgOut_ << "generated_inputs(" << i << ")={" << generatorInputs[0]
-          << ", " << generatorInputs[1] << ", "
-          << generatorInputs[2] << ", ...}\n";
-
-        dbgOut_ << "generated_outputs(" << i << ")={" << generatedOutputs[0]
-          << ", " << generatedOutputs[1] << ", "
-          << generatedOutputs[2] << ", ...}\n";
-
-        dbgOut_ << "output(" << i << ")=" << fakeOutputs[0] << "\n";
-      }
-
-      generatedInputs_.push_back(generatorInputs);
-      generatedLabels_.push_back(label);
-#endif
-    }
 
     return {realLoss, fakeLoss};
   }
@@ -278,15 +272,8 @@ protected:
       std::size_t dataIndex = 0;
 
       if (useGenerated) {
-#if !WRITE_DEBUG
         const auto & label = labels[i];
         std::vector<double> generatorInputs = GeneratorInputs(labels[i]);
-#else
-        const auto & label = generatedLabels_[i % generatedInputs_.size()];
-        const std::vector<double> & generatorInputs = generatedInputs_.size()
-          ? generatedInputs_[i % generatedInputs_.size()]
-          : GeneratorInputs(labels[i]);
-#endif
 
         auto outputs = generator_->ProcessThreaded(generatorInputs);
 
@@ -339,30 +326,6 @@ protected:
         classifyData_[i].get() + inputSize);
 
       auto outputs = brain_->ProcessThreaded(inputs);
-
-#if WRITE_DEBUG
-      if (i < 10) {
-        dbgOut_ << "confidence(" << i << ")=" << outputs[0] << "\n";
-
-        if (generatedInputs_.size() && i % 2 == 1) {
-          auto generatorInputs = generatedInputs_[i % generatedInputs_.size()];
-          auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
-          auto fakeOutputs = brain_->ProcessThreaded(generatedOutputs);
-
-          dbgOut_ << "generated_inputs(" << i << ")={" << generatorInputs[0]
-            << ", " << generatorInputs[1] << ", "
-            << generatorInputs[2] << ", ...}\n";
-
-          dbgOut_ << "generated_outputs(" << i << ")={" << generatedOutputs[0]
-            << ", " << generatedOutputs[1] << ", "
-            << generatedOutputs[2] << ", ...}\n";
-
-          dbgOut_ << "expected_confidence(" << i << ")="
-            << fakeOutputs[0] << "\n";
-        }
-      }
-#endif
-
       objects_[i]->Confidence(outputs[0]);
     }
   }
@@ -396,10 +359,6 @@ private:
 
   std::size_t iteration_ = 0u;
   std::size_t trainingCursor_ = 0u;
-
-  std::ofstream dbgOut_;
-  std::vector<std::vector<double>> generatedInputs_;
-  std::vector<std::vector<double>> generatedLabels_;
 
   const std::size_t NoiseInputs = 100u;
   const std::size_t BatchSize = 100u;

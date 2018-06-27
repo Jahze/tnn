@@ -37,6 +37,9 @@ public:
       hdc_ = nullptr;
       hwnd_ = nullptr;
     }
+
+    for (auto && listener : destroyListeners_)
+      listener();
   }
 
   void MakeActive() {
@@ -47,6 +50,10 @@ public:
 
   void AddResizeListener(std::function<void()> listener) {
     resizeListeners_.push_back(listener);
+  }
+
+  void AddDestroyListener(std::function<void()> listener) {
+    destroyListeners_.push_back(listener);
   }
 
   void SwapBuffers() {
@@ -94,6 +101,7 @@ private:
   std::size_t width_ = 0u;
   std::size_t height_ = 0u;
   std::vector<std::function<void()>> resizeListeners_;
+  std::vector<std::function<void()>> destroyListeners_;
 };
 
 class ISceneObject {
