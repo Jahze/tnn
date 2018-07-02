@@ -218,7 +218,7 @@ protected:
 
     brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
 
-    trainingCursor_ += 100u;
+    trainingCursor_ += BatchSize;
 #if GRAPH_LOSS
       const auto & realOutputs = brain_->ProcessThreaded(inputs);
       const auto & fakeOutputs = brain_->ProcessThreaded(generatedOutputs);
