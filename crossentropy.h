@@ -81,7 +81,7 @@ protected:
       double normalisedValue = -1.0 + normalised * 2.0;
       inputs[0] = normalisedValue;
 
-      auto outputs = brain_->ProcessThreaded(inputs);
+      auto outputs = brain_->Process(inputs);
       series.points.push_back({ input, outputs[0] });
 
       double loss = outputs[0] - TargetFunction(input);

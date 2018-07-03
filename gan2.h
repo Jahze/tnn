@@ -155,7 +155,7 @@ protected:
 
       auto generatorInputs = GeneratorInputs(label);
 
-      inputs[i] = std::move(generator_->ProcessThreaded(generatorInputs));
+      inputs[i] = std::move(generator_->Process(generatorInputs));
       inputs[i].insert(inputs[i].end(), label.begin(), label.end());
 
       idealOutputs[i][0] = 1.0;
@@ -209,7 +209,7 @@ protected:
 
       std::vector<double> generatorInputs = GeneratorInputs(label);
 
-      inputs[i] = std::move(generator_->ProcessThreaded(generatorInputs));
+      inputs[i] = std::move(generator_->Process(generatorInputs));
       inputs[i].insert(inputs[i].end(), label.begin(), label.end());
 
       // Want a value of 0.0 (because it's not from the training set)
@@ -220,8 +220,8 @@ protected:
 
     trainingCursor_ += BatchSize;
 #if GRAPH_LOSS
-      const auto & realOutputs = brain_->ProcessThreaded(inputs);
-      const auto & fakeOutputs = brain_->ProcessThreaded(generatedOutputs);
+      const auto & realOutputs = brain_->Process(inputs);
+      const auto & fakeOutputs = brain_->Process(generatedOutputs);
       const double realOutputLoss = 1.0 - realOutputs[0];
       const double fakeOutputLoss = 0.0 - fakeOutputs[0];
 
@@ -275,7 +275,7 @@ protected:
         const auto & label = labels[i];
         std::vector<double> generatorInputs = GeneratorInputs(labels[i]);
 
-        auto outputs = generator_->ProcessThreaded(generatorInputs);
+        auto outputs = generator_->Process(generatorInputs);
 
         for (std::size_t j = 0, length = outputs.size(); j < length; ++j) {
           data[dataIndex++] = (uint8_t)(outputs[j] * 255.0);
@@ -325,7 +325,7 @@ protected:
         classifyData_[i].get(),
         classifyData_[i].get() + inputSize);
 
-      auto outputs = brain_->ProcessThreaded(inputs);
+      auto outputs = brain_->Process(inputs);
       objects_[i]->Confidence(outputs[0]);
     }
   }

@@ -162,7 +162,7 @@ protected:
 
         std::vector<double> generatorInputs = GeneratorInputs(outputs);
 
-        auto generatedOutputs = generator_->ProcessThreaded(generatorInputs);
+        auto generatedOutputs = generator_->Process(generatorInputs);
 
         // Want a value of 0.0 (because it's not from the training set)
         //idealOutputs[0] = 0.0;
@@ -175,7 +175,7 @@ protected:
         // TODO: take the loss function before backpropping this case as not
         // a sample -> is this right?
         generatorInputs = GeneratorInputs(outputs);
-        generatedOutputs = generator_->ProcessThreaded(generatorInputs);
+        generatedOutputs = generator_->Process(generatorInputs);
 
         std::memcpy(idealOutputs.Get(), outputs.data(), 10u * sizeof(double));
         idealOutputs[10] = 0.0;
@@ -220,7 +220,7 @@ protected:
         classifyData[datum].inputs.get(),
         classifyData[datum].inputs.get() + inputSize);
 
-      auto outputs = brain_->ProcessThreaded(inputs);
+      auto outputs = brain_->Process(inputs);
       std::size_t digit = 0u;
       for (std::size_t i = 0u, length = outputs.size(); i < length; ++i) {
         if (outputs[i] > outputs[digit])
@@ -295,7 +295,7 @@ protected:
         std::vector<double> generatorInputs = GeneratorInputs(
             classifyOutput_.Data()[i]);
 
-        auto outputs = generator_->ProcessThreaded(generatorInputs);
+        auto outputs = generator_->Process(generatorInputs);
 
         for (std::size_t j = 0, length = outputs.size(); j < length; ++j) {
           data[dataIndex++] = (uint8_t)(outputs[j] * 255.0);

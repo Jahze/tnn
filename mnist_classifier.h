@@ -98,8 +98,6 @@ protected:
       recreateScene_ = true;
     }
 
-    scene_->Update(ms);
-
     if (render)
       scene_->Render(context_);
   }

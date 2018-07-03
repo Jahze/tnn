@@ -149,20 +149,11 @@ public:
   }
 
   AlignedMatrix Process(const std::vector<std::vector<double>> & batch) {
-    const std::size_t inputSize = batch[0].size();
-
-    inputsStorage_.Reset(batch.size(), inputSize + 1);
-
-    for (std::size_t i = 0, length = batch.size(); i < length; ++i) {
-      std::copy(batch[i].cbegin(), batch[i].cend(), inputsStorage_[i]);
-      inputsStorage_[i][inputSize] = kThresholdBias;
-    }
-
-    AlignedMatrix * in = &inputsStorage_;
+    AlignedMatrix * in = StoreInputs(batch);
 
     for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
       layers_[i].CreateOutputMatrix(batch.size());
-      layers_[i].Process(*in);
+      layers_[i].ProcessThreaded(*in);
 
       in = &layers_[i].outputs_;
     }
@@ -176,40 +167,6 @@ public:
     std::vector<std::vector<double>> batch = {inputs};
 
     const AlignedMatrix & outputs = Process(batch);
-
-    return { outputs[0], outputs[0] + layers_.back().size_ };
-  }
-
-  AlignedMatrix ProcessThreaded(
-      const std::vector<std::vector<double>> & batch) {
-
-    const std::size_t inputSize = batch[0].size();
-
-    inputsStorage_.Reset(batch.size(), inputSize + 1);
-
-    for (std::size_t i = 0, length = batch.size(); i < length; ++i) {
-      std::copy(batch[i].cbegin(), batch[i].cend(), inputsStorage_[i]);
-      inputsStorage_[i][inputSize] = kThresholdBias;
-    }
-
-    AlignedMatrix * in = &inputsStorage_;
-
-    for (std::size_t i = 0, length = hiddenLayers_ + 1; i < length; ++i) {
-      layers_[i].CreateOutputMatrix(batch.size());
-      layers_[i].ProcessThreaded(*in);
-
-      in = &layers_[i].outputs_;
-    }
-
-    return std::move(in->Clone());
-  }
-
-  std::vector<double> ProcessThreaded(const std::vector<double> & inputs) {
-    CHECK(inputs.size() == inputs_);
-
-    std::vector<std::vector<double>> batch = {inputs};
-
-    const auto & outputs = ProcessThreaded(batch);
 
     return { outputs[0], outputs[0] + layers_.back().size_ };
   }
@@ -287,7 +244,7 @@ public:
       const std::vector<std::vector<double>> & inputs,
       const std::vector<std::vector<double>> & idealOutputs) {
 
-    const auto & outputs = ProcessThreaded(inputs);
+    const auto & outputs = Process(inputs);
 
     const std::size_t length = layers_.back().size_;
     const std::size_t batchSize = inputs.size();
@@ -309,7 +266,7 @@ public:
       const std::vector<std::vector<double>> & inputs,
       const std::vector<std::vector<double>> & idealOutputs) {
 
-    const auto & outputs = ProcessThreaded(inputs);
+    const auto & outputs = Process(inputs);
 
     const std::size_t length = layers_.back().size_;
     const std::size_t batchSize = inputs.size();
@@ -333,7 +290,7 @@ public:
       const std::vector<std::vector<double>> & inputs,
       const std::vector<std::vector<double>> & idealOutputs) {
 
-    const auto & outputs = net.ProcessThreaded(inputs);
+    const auto & outputs = net.Process(inputs);
 
     const std::size_t length = net.layers_.back().size_;
     const std::size_t batchSize = inputs.size();
@@ -375,6 +332,19 @@ private:
       layers_.emplace_back(neuronesPerHiddenLayer_, neuronesPerHiddenLayer_);
 
     layers_.emplace_back(outputs_, neuronesPerHiddenLayer_);
+  }
+
+  AlignedMatrix * StoreInputs(const std::vector<std::vector<double>> & batch) {
+    const std::size_t inputSize = batch[0].size();
+
+    inputsStorage_.Reset(batch.size(), inputSize + 1);
+
+    for (std::size_t i = 0, length = batch.size(); i < length; ++i) {
+      std::copy(batch[i].cbegin(), batch[i].cend(), inputsStorage_[i]);
+      inputsStorage_[i][inputSize] = kThresholdBias;
+    }
+
+    return &inputsStorage_;
   }
 
   void UpdateWeights() {

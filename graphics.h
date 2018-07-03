@@ -122,25 +122,8 @@ public:
   }
 
   void Update(uint64_t ms) {
-    ThreadPool * pool = GetCpuSizedThreadPool();
-
-    static const std::size_t kBatchSize = 5;
-    const std::size_t size = objects_.size();
-    const std::size_t batches = size / kBatchSize;
-
-    TaskList tasks(*pool);
-
-    for (std::size_t i = 0; i < batches; ++i) {
-      tasks.AddTask(std::bind(&Scene::UpdatePortion,
-        this, ms, i * kBatchSize, (i + 1) * kBatchSize));
-    }
-
-    if (size % kBatchSize != 0) {
-      tasks.AddTask(std::bind(&Scene::UpdatePortion,
-        this, ms, batches * kBatchSize, size));
-    }
-
-    tasks.Run();
+    for (auto && object : objects_)
+      object->Update(ms);
   }
 
   void AddObject(ISceneObject * object) {
@@ -149,12 +132,6 @@ public:
 
   void RemoveObject(ISceneObject * object) {
     objects_.erase(std::find(objects_.begin(), objects_.end(), object));
-  }
-
-private:
-  void UpdatePortion(uint64_t ms, std::size_t first, std::size_t last) {
-    for (std::size_t i = first; i < last; ++i)
-      objects_[i]->Update(ms);
   }
 
 private:
