@@ -167,27 +167,32 @@ struct AlignedMatrix {
 
   void Multiply(const AlignedMatrix & inputs, AlignedMatrix & outputs) const {
     // NB: we treat the rows of 'inputs' as if they were columns
-    for (std::size_t inputRow = 0u; inputRow < inputs.rows_; ++inputRow) {
-      const double * inputPtr = inputs.Row(inputRow);
-      double * outputPtr = outputs.Row(inputRow);
+    for (std::size_t inputRow = 0u; inputRow < inputs.rows_; ++inputRow)
+      MultiplyRow(inputRow, inputs, outputs);
+  }
 
-      for (std::size_t i = 0u; i < rows_; ++i) {
-        __m256d result = _mm256_setzero_pd();
+  void MultiplyRow(std::size_t inputRow, const AlignedMatrix & inputs,
+      AlignedMatrix & outputs) const {
 
-        const double * row = Row(i);
+    const double * inputPtr = inputs.Row(inputRow);
+    double * outputPtr = outputs.Row(inputRow);
 
-        const std::size_t batches = alignedColumns_ / 4;
-        for (std::size_t j = 0u; j < batches; ++j) {
-          std::size_t stride = j * 4;
-          result = _mm256_add_pd(result, _mm256_mul_pd(
-            _mm256_load_pd(inputPtr + stride),
-            _mm256_load_pd(row + stride)));
-        }
+    for (std::size_t i = 0u; i < rows_; ++i) {
+      __m256d result = _mm256_setzero_pd();
 
-        result = _mm256_hadd_pd(result, result);
+      const double * row = Row(i);
 
-        outputPtr[i] = result.m256d_f64[0] + result.m256d_f64[2];
+      const std::size_t batches = alignedColumns_ / 4;
+      for (std::size_t j = 0u; j < batches; ++j) {
+        std::size_t stride = j * 4;
+        result = _mm256_add_pd(result, _mm256_mul_pd(
+          _mm256_load_pd(inputPtr + stride),
+          _mm256_load_pd(row + stride)));
       }
+
+      result = _mm256_hadd_pd(result, result);
+
+      outputPtr[i] = result.m256d_f64[0] + result.m256d_f64[2];
     }
   }
 

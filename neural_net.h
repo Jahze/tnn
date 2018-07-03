@@ -108,17 +108,31 @@ struct NeuroneLayer {
   }
 
   void ProcessThreaded(AlignedMatrix & inputs) {
-    if (size_ < 16u)
-      weights_.Multiply(inputs, outputs_);
-    else
-      weights_.MultiplyThreaded(inputs, outputs_);
+   const std::size_t maxDimension = std::max(size_, inputs.rows_);
 
-      for (std::size_t i = 0u; i < outputs_.rows_; ++i) {
-        for (std::size_t j = 0u; j < size_; ++j)
-          outputs_[i][j] = ActivationFunction(activationType_, outputs_[i][j]);
+    if (inputs.rows_ < 16u) {
+      if (size_ < 16u)
+        weights_.Multiply(inputs, outputs_);
+      else
+        weights_.MultiplyThreaded(inputs, outputs_);
 
-        outputs_[i][size_] = kThresholdBias;
-      }
+      for (std::size_t i = 0u; i < outputs_.rows_; ++i)
+        FinaliseOutputs(i);
+    }
+    else {
+      ThreadPool * pool = GetCpuSizedThreadPool();
+
+      BatchTasks tasks{*pool};
+      tasks.CreateBatches(inputs.rows_,
+        [this, &inputs](std::size_t start, std::size_t end) {
+          for (std::size_t i = start; i < end; ++i) {
+            weights_.MultiplyRow(i, inputs, outputs_);
+            FinaliseOutputs(i);
+          }
+      });
+
+      tasks.Run();
+    }
 
     inputs_ = &inputs;
   }
@@ -130,6 +144,14 @@ struct NeuroneLayer {
       weights_.SubtractThreaded(weightsDelta_);
 
     weightsDelta_.Zero();
+  }
+
+private:
+  void FinaliseOutputs(std::size_t i) {
+    for (std::size_t j = 0u; j < size_; ++j)
+      outputs_[i][j] = ActivationFunction(activationType_, outputs_[i][j]);
+
+    outputs_[i][size_] = kThresholdBias;
   }
 };
 

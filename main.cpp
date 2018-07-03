@@ -124,7 +124,7 @@ int main() {
     kMsPerFrame,
     kMsPerGeneration * 15,
     glContext);
-#elif 0
+#elif 1
   mnist::Classifier population(
     kMsPerFrame,
     glContext,
@@ -140,7 +140,7 @@ int main() {
     "data\\train-labels.idx1-ubyte",
     "data\\t10k-images.idx3-ubyte",
     "data\\t10k-labels.idx1-ubyte");
-#elif 1
+#elif 0
   mnist::GAN2 population(
     kMsPerFrame,
     glContext,
@@ -148,11 +148,11 @@ int main() {
     "data\\train-labels.idx1-ubyte",
     "data\\t10k-images.idx3-ubyte",
     "data\\t10k-labels.idx1-ubyte");
-#elif 0
+#elif 1
   CrossEntropy population(
     kMsPerFrame,
     glContext);
-#elif 1
+#elif 0
   backprop::Simulation population(
     kMsPerFrame,
     kMsPerFrame * 2,
