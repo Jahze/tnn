@@ -27,6 +27,7 @@ public:
   void Teach(NeuralNet & net) {
     if (inputs_.empty()) return;
 
+    // TODO: split into batches if we have a lot of inputs?
     auto outputs = net.Process(inputs_);
 
     const auto & rewards = DiscountedRewards();
@@ -130,7 +131,7 @@ class Snake : public ::SimpleSimulation {
 public:
   Snake(std::size_t msPerFrame, OpenGLContext & context, std::size_t gridSize)
       : SimpleSimulation(msPerFrame), context_(context), gridSize_(gridSize),
-        policyGradient_(ActionCount), avgLength_(10u) {
+        policyGradient_(ActionCount), avgLength_(100u) {
 
     std::random_device r;
     rng_.seed(r());
@@ -168,6 +169,7 @@ public:
 
     //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 10u));
     brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 100u));
+    //brain_->SetLearningRate(0.0001);
     brain_->SetLearningRate(0.001);
     brain_->SetOutputLayerActivationType(ActivationType::Softmax);
     brain_->SetHiddenLayerActivationType(ActivationType::ReLu);
@@ -179,7 +181,8 @@ protected:
 
   void UpdateImpl(bool render, std::size_t ms) override {
     if (moves_++ > MaximumIdleMoves) {
-      Restart();
+      //Restart();
+      Dead();
     }
 
     SampleBrain();

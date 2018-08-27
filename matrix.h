@@ -165,6 +165,20 @@ struct AlignedMatrix {
     return Row(row)[column];
   }
 
+  void Divide(double scalar) {
+    for (std::size_t row = 0u; row < rows_; ++row) {
+      for (std::size_t col = 0u; col < columns_; ++col)
+        Value(row, col) = Value(row, col) / scalar;
+    }
+  }
+
+  void Multiply(double scalar) {
+    for (std::size_t row = 0u; row < rows_; ++row) {
+      for (std::size_t col = 0u; col < columns_; ++col)
+        Value(row, col) = Value(row, col) * scalar;
+    }
+  }
+
   void Multiply(const AlignedMatrix & inputs, AlignedMatrix & outputs) const {
     // NB: we treat the rows of 'inputs' as if they were columns
     for (std::size_t inputRow = 0u; inputRow < inputs.rows_; ++inputRow)
@@ -232,6 +246,17 @@ struct AlignedMatrix {
     });
 
     tasks.Run();
+  }
+
+  void Add(AlignedMatrix & rhs) {
+    for (std::size_t i = 0u; i < rows_; ++i) {
+
+      double * row = Row(i);
+      const double * input = rhs.Row(i);
+
+      for (std::size_t j = 0u; j < columns_; ++j)
+        row[j] += input[j];
+    }
   }
 
   void Subtract(AlignedMatrix & rhs) {

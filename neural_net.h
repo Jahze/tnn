@@ -45,6 +45,7 @@ struct NeuroneLayer {
   AlignedMatrix weights_;
   AlignedMatrix transpose_;
   AlignedMatrix weightsDelta_;
+  AlignedMatrix momentum_;
   AlignedMatrix outputs_;
   AlignedMatrix dLoss_dNet_;
   AlignedMatrix * inputs_;
@@ -59,6 +60,7 @@ struct NeuroneLayer {
     weights_.Reset(size, weightsPerNeurone_);
     transpose_.Reset(size, weightsPerNeurone_);
     weightsDelta_.Reset(size, weightsPerNeurone_);
+    momentum_.Reset(size, weightsPerNeurone_);
 
     std::random_device rd;
     std::mt19937 generator(rd());
@@ -136,11 +138,56 @@ struct NeuroneLayer {
     inputs_ = &inputs;
   }
 
-  void CommitDeltas() {
-    if (size_ < 16u)
+  void CommitDeltas(double learningRate) {
+    enum class Optimiser {
+      None,
+      Momentum, // lr ~ 0.0001
+      RMSProp,  // lr ~ 0.001
+    };
+
+    if (size_ < 16u) {
       weights_.Subtract(weightsDelta_);
-    else
+    }
+    else {
       weights_.SubtractThreaded(weightsDelta_);
+    }
+
+    const Optimiser optimiser = Optimiser::RMSProp;
+    const static double Momentum = 0.9;
+
+    switch (optimiser) {
+    case Optimiser::Momentum:
+      momentum_.Multiply(Momentum);
+      if (size_ < 16u) weights_.Subtract(momentum_);
+      else weights_.SubtractThreaded(momentum_);
+      momentum_.Add(weightsDelta_);
+      break;
+
+    case Optimiser::RMSProp:
+    {
+      // TODO : weightsDelta_ contains learning rate and shouldn't
+      weightsDelta_.Divide(learningRate);
+
+      AlignedMatrix squared{size_, weightsPerNeurone_};
+      weightsDelta_.Multiply(weightsDelta_, squared);
+      squared.Multiply(1.0 - Momentum);
+
+      momentum_.Multiply(Momentum);
+      momentum_.Add(squared);
+
+      AlignedMatrix delta = momentum_.Clone();
+
+      for (std::size_t i = 0u; i < size_; ++i) {
+        for (std::size_t j = 0u; j < weightsPerNeurone_; ++j)
+          delta[i][j] = (learningRate / std::sqrt(delta[i][j] + 0.1e8)) * weightsDelta_[i][j];
+      }
+
+      if (size_ < 16u) weights_.Subtract(delta);
+      else weights_.SubtractThreaded(delta);
+
+      break;
+    }
+    }
 
     weightsDelta_.Zero();
   }
@@ -420,7 +467,7 @@ private:
       tasks.Run();
 
       if (batchSize > 1u)
-        layer.CommitDeltas();
+        layer.CommitDeltas(learningRate_);
     }
   }
 
