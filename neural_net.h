@@ -332,6 +332,19 @@ public:
     net.CalculateGradients();
 
     // Get final loss to calculate genertor dLoss_dNet
+    //AlignedMatrix lastLoss{batchSize, net.layers_[0].neuroneSize_};
+
+    //net.layers_[0].TransposeWeights();
+    //ThreadPool * pool = GetCpuSizedThreadPool();
+
+    //BatchTasks tasks{*pool};
+    //tasks.CreateBatches(batchSize,
+    //  [&net, &lastLoss](std::size_t start, std::size_t end) {
+    //    net.CalculateLoss(start, end, 0, lastLoss);
+    //});
+
+    //tasks.Run();
+
     AlignedMatrix lastLoss;
     net.CalculateLoss(0, lastLoss);
 
@@ -436,6 +449,7 @@ private:
     const std::size_t batchSize = layer.outputs_.rows_;
     const std::size_t inputs = layer.weightsPerNeurone_;
 
+    // TODO: vectorise on batches
     for (std::size_t i = 0u; i < batchSize; ++i) {
       const double * dLoss_dNet = layer.dLoss_dNet_[i];
       const double * dNet_dWeights = (*layer.inputs_)[i];
@@ -501,11 +515,9 @@ private:
       SIMDMultiply(loss[i], layer.dLoss_dNet_[i],
         layer.dLoss_dNet_[i], layer.size_);
     }
-
   }
 
-  void CalculateLoss(std::size_t current,
-    AlignedMatrix & loss) {
+  void CalculateLoss(std::size_t current, AlignedMatrix & loss) {
 
     auto & layer = layers_[current];
 
@@ -518,6 +530,27 @@ private:
     const AlignedMatrix & transposedWeights = layer.TransposeWeights();
 
     for (std::size_t input = 0u; input < batchSize; ++input) {
+      double * dLoss_dNet = layer.dLoss_dNet_[input];
+
+      for (std::size_t i = 0u; i < prevLayerSize; ++i) {
+        for (std::size_t j = 0u; j < layerSize; ++j) {
+          loss[input][i] += dLoss_dNet[j] * transposedWeights[i][j];
+        }
+      }
+    }
+  }
+
+  void CalculateLoss(std::size_t start, std::size_t end, std::size_t current,
+    AlignedMatrix & loss) {
+
+    auto & layer = layers_[current];
+
+    const std::size_t layerSize = layer.size_;
+    const std::size_t prevLayerSize = layer.neuroneSize_;
+
+    const AlignedMatrix & transposedWeights = layer.transpose_;
+
+    for (std::size_t input = start; input < end; ++input) {
       double * dLoss_dNet = layer.dLoss_dNet_[input];
 
       for (std::size_t i = 0u; i < prevLayerSize; ++i) {
