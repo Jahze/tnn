@@ -103,23 +103,28 @@ protected:
   }
 
   void TrainModel() {
-    auto TrainFunction = [this]() {
-      const auto & normalisedImages = trainingImages_.NormalisedData();
-      const std::size_t dimension = trainingImages_.Width();
-      const std::size_t inputSize = dimension * dimension;
+    const std::size_t Iterations = 1u;
+    //const std::size_t BatchSize = 100u;
+    const std::size_t BatchSize = 1u;
 
-      const auto & data = trainingOutput_.Data();
+    //brain_->SetLearningRate(0.001);
+    brain_->SetLearningRate(0.1);
 
-      const std::size_t BatchSize = 100u;
+    const auto & normalisedImages = trainingImages_.NormalisedData();
+    const std::size_t dimension = trainingImages_.Width();
+    const std::size_t inputSize = dimension * dimension;
 
-      std::vector<std::vector<double>> batch(BatchSize);
-      std::vector<std::vector<double>> idealOutputs(BatchSize);
+    const auto & data = trainingOutput_.Data();
 
-      for (std::size_t i = 0u; i < BatchSize; ++i) {
-        batch[i].resize(inputSize);
-        idealOutputs[i].resize(10u);
-      }
+    std::vector<std::vector<double>> batch(BatchSize);
+    std::vector<std::vector<double>> idealOutputs(BatchSize);
 
+    for (std::size_t i = 0u; i < BatchSize; ++i) {
+      batch[i].resize(inputSize);
+      idealOutputs[i].resize(10u);
+    }
+
+    for (std::size_t iteration = 0u; iteration < Iterations; ++ iteration) {
       std::cout << "Training.....0%";
 
       const std::size_t length = normalisedImages.size();
@@ -162,10 +167,7 @@ protected:
       std::cout << "\rTraining.....done\n";
 
       std::cout << "Took " << totalTrainingTimer.ElapsedSeconds() << "s\n";
-    };
-
-    brain_->SetLearningRate(0.001);
-    TrainFunction();
+    }
   }
 
   void Classify() {
