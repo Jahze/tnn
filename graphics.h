@@ -47,9 +47,14 @@ public:
   }
 
   void Resize();
+  void KeyDown(int key);
 
   void AddResizeListener(std::function<void()> listener) {
     resizeListeners_.push_back(listener);
+  }
+
+  void AddKeyListener(std::function<void(int)> listener) {
+    keyListeners_.push_back(listener);
   }
 
   void AddDestroyListener(std::function<void()> listener) {
@@ -101,6 +106,7 @@ private:
   std::size_t width_ = 0u;
   std::size_t height_ = 0u;
   std::vector<std::function<void()>> resizeListeners_;
+  std::vector<std::function<void(int)>> keyListeners_;
   std::vector<std::function<void()>> destroyListeners_;
 };
 

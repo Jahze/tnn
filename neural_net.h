@@ -18,9 +18,10 @@ enum class ActivationType {
   ReLu,
   Identity,
   LeakyReLu,
+  Softmax,
 };
 
-double ActivationFunction(ActivationType type, double activation);
+void ActivationFunction(ActivationType type, double * outputs, std::size_t size);
 double ActivationFunctionDerivative(ActivationType type, double value);
 
 struct Neurone {
@@ -98,9 +99,7 @@ struct NeuroneLayer {
     weights_.Multiply(inputs, outputs_);
 
     for (std::size_t i = 0u; i < outputs_.rows_; ++i) {
-      for (std::size_t j = 0u; j < size_; ++j)
-        outputs_[i][j] = ActivationFunction(activationType_, outputs_[i][j]);
-
+      ActivationFunction(activationType_, outputs_[i], size_);
       outputs_[i][size_] = kThresholdBias;
     }
 
@@ -148,9 +147,7 @@ struct NeuroneLayer {
 
 private:
   void FinaliseOutputs(std::size_t i) {
-    for (std::size_t j = 0u; j < size_; ++j)
-      outputs_[i][j] = ActivationFunction(activationType_, outputs_[i][j]);
-
+    ActivationFunction(activationType_, outputs_[i], size_);
     outputs_[i][size_] = kThresholdBias;
   }
 };
@@ -253,6 +250,8 @@ public:
   }
 
   void SetHiddenLayerActivationType(ActivationType type) {
+    CHECK(type != ActivationType::Softmax);
+
     // Tanh needs a lower learning rate generally
     for (std::size_t i = 0; i < hiddenLayers_; ++i)
       layers_[i].activationType_ = type;
@@ -279,6 +278,20 @@ public:
     }
 
     Calculate_dLoss_dNet(hiddenLayers_, loss);
+
+    CalculateGradients();
+    UpdateWeights();
+  }
+
+  void BackPropagationCrossEntropy(AlignedMatrix & loss) {
+    //layers_.back().dLoss_dNet_ = loss;
+
+    layers_.back().dLoss_dNet_.Reset(loss.rows_, loss.columns_);
+
+    for (std::size_t i = 0u; i < loss.rows_; ++i) {
+      for (std::size_t j = 0u; j < loss.columns_; ++j)
+        layers_.back().dLoss_dNet_[i][j] = loss[i][j];
+    }
 
     CalculateGradients();
     UpdateWeights();

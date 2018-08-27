@@ -147,6 +147,7 @@
     <ClInclude Include="moving_average.h" />
     <ClInclude Include="neural_net.h" />
     <ClInclude Include="simulation.h" />
+    <ClInclude Include="snake.h" />
     <ClInclude Include="threadpool.h" />
     <ClInclude Include="timer.h" />
   </ItemGroup>

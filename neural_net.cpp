@@ -15,18 +15,40 @@ double Tanh(double activation) {
   return tanh(activation);
 }
 
-double ActivationFunction(ActivationType type, double activation) {
-  switch (type) {
-  case ActivationType::Sigmoid:
-    return Sigmoid(activation, kActivationResponse);
-  case ActivationType::Tanh:
-    return Tanh(activation);
-  case ActivationType::ReLu:
-    return activation >= 0.0 ? activation : 0.0;
-  case ActivationType::Identity:
-    return activation;
-  case ActivationType::LeakyReLu:
-    return activation >= 0.0 ? activation : activation*0.01;
+void ActivationFunction(
+    ActivationType type,
+    double * outputs,
+    std::size_t size) {
+
+  double totalE = 0.0;
+  if (type == ActivationType::Softmax) {
+    for (std::size_t i = 0u; i < size; ++i)
+      totalE += std::exp(outputs[i]);
+  }
+
+  for (std::size_t i = 0u; i < size; ++i) {
+    const double activation = outputs[i];
+
+    switch (type) {
+    case ActivationType::Sigmoid:
+      outputs[i] = Sigmoid(activation, kActivationResponse);
+      continue;
+    case ActivationType::Tanh:
+      outputs[i] = Tanh(activation);
+      continue;
+    case ActivationType::ReLu:
+      outputs[i] = activation >= 0.0 ? activation : 0.0;
+      continue;
+    case ActivationType::Identity:
+      outputs[i] = activation;
+      continue;
+    case ActivationType::LeakyReLu:
+      outputs[i] =  activation >= 0.0 ? activation : activation*0.01;
+      continue;
+    case ActivationType::Softmax:
+      outputs[i] = std::exp(activation) / totalE;
+      continue;
+    }
   }
 }
 

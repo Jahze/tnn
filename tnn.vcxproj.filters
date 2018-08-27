@@ -86,6 +86,9 @@
     <ClInclude Include="crossentropy.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="snake.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="tnn.natvis" />

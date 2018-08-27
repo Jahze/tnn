@@ -94,6 +94,8 @@ public:
     }
   }
 
+  void SetMsPerFrame(std::size_t ms) { msPerFrame_ = ms; }
+
 protected:
   virtual void StartImpl() = 0;
   virtual void UpdateImpl(bool render, std::size_t ms) = 0;

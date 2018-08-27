@@ -16,3 +16,8 @@ void OpenGLContext::Resize() {
   for (auto && listener : resizeListeners_)
     listener();
 }
+
+void OpenGLContext::KeyDown(int key) {
+  for (auto && listener : keyListeners_)
+    listener(key);
+}
