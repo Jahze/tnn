@@ -45,33 +45,40 @@ public:
 
     net.BackPropagationCrossEntropy(loss);
 
-    std::cout << "Last action\n";
-    std::cout << "{";
-    std::cout << std::setprecision(2);
+    //std::cout << "Last action\n";
+    //std::cout << "{";
+    //std::cout << std::setprecision(2);
 
-    for (std::size_t i = 0u; i < actionCount_; ++i)
-      std::cout << outputs[inputSize - 1u][i] << ", ";
+    //for (std::size_t i = 0u; i < actionCount_; ++i)
+    //  std::cout << outputs[inputSize - 1u][i] << ", ";
 
-    std::cout << "}\n";
-    std::cout << "Selected action = " << actions_[inputSize - 1u] << "\n";
-    std::cout << "Reward = " << rewards[inputSize - 1u] << "\n";
+    //std::cout << "}\n";
+    //std::cout << "Selected action = " << actions_[inputSize - 1u] << "\n";
+    //std::cout << "Reward = " << rewards[inputSize - 1u] << "\n";
 
-    auto nextOutputs = net.Process(inputs_);
+    //auto nextOutputs = net.Process(inputs_);
 
-    std::cout << "Next action\n";
-    std::cout << "{";
-    std::cout << std::setprecision(2);
+    //std::cout << "Next action\n";
+    //std::cout << "{";
+    //std::cout << std::setprecision(2);
 
-    for (std::size_t i = 0u; i < actionCount_; ++i)
-      std::cout << nextOutputs[inputSize - 1u][i] << ", ";
+    //for (std::size_t i = 0u; i < actionCount_; ++i)
+    //  std::cout << nextOutputs[inputSize - 1u][i] << ", ";
 
-    std::cout << "}\n---\n";
+    //std::cout << "}\n---\n";
 
-    if (rewards[inputSize - 1u] < 0.0 &&
-        nextOutputs[inputSize - 1u][actions_[inputSize - 1u]] >
-        outputs[inputSize - 1u][actions_[inputSize - 1u]]) {
-      std::cout << "HOW?\n";
-    }
+    //if (rewards[inputSize - 1u] < 0.0 &&
+    //    nextOutputs[inputSize - 1u][actions_[inputSize - 1u]] >
+    //    outputs[inputSize - 1u][actions_[inputSize - 1u]]) {
+    //  std::cout << "HOW?\n";
+    //}
+
+    //if (std::isnan(nextOutputs[inputSize - 1u][0]) || std::isnan(outputs[inputSize - 1u][0])) {
+    //  std::cout << "NAN!\n";
+    //  auto rewards2 = DiscountedRewards();
+    //  if (std::isnan(rewards2[0]))
+    //    std::cout << "NAN!\n";
+    //}
   }
 
 private:
@@ -98,6 +105,11 @@ private:
       stddev += std::pow(out[i] - mean, 2.);
 
     stddev = std::sqrt(stddev / inputSize);
+
+    // This can happen if the whole run generates no rewards
+    if (stddev == 0.0) {
+      return out;
+    }
 
     for (std::size_t i = 0u; i < inputSize; ++i) {
       out[i] -= mean;
@@ -156,7 +168,7 @@ public:
 
     //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 10u));
     brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 100u));
-    brain_->SetLearningRate(0.01);
+    brain_->SetLearningRate(0.001);
     brain_->SetOutputLayerActivationType(ActivationType::Softmax);
     brain_->SetHiddenLayerActivationType(ActivationType::ReLu);
   }
@@ -166,11 +178,15 @@ protected:
   }
 
   void UpdateImpl(bool render, std::size_t ms) override {
-    if (!render) return;
+    if (moves_++ > MaximumIdleMoves) {
+      Restart();
+    }
 
     SampleBrain();
 
     MoveSnake();
+
+    if (!render) return;
 
     glClear(GL_COLOR_BUFFER_BIT);
     glBegin(GL_QUADS);
@@ -258,6 +274,7 @@ protected:
     if (growSnake_) {
       PlaceApple();
       policyGradient_.StoreReward(1.);
+      moves_ = 0u; // reset idle moves
     }
     else {
       //policyGradient_.StoreReward(0.1);
@@ -271,7 +288,11 @@ protected:
   }
 
   void Dead() {
-    policyGradient_.StoreReward(-1.);
+    Restart(-1.);
+  }
+
+  void Restart(double lastReward = 0.0) {
+    policyGradient_.StoreReward(lastReward);
     policyGradient_.Teach(*brain_.get());
     policyGradient_.Reset();
 
@@ -292,6 +313,8 @@ protected:
 
     snakeDirection_ = Direction::Right;
     lastSnakeDirection_ = Direction::Right;
+
+    moves_ = 0u;
 
     PlaceApple();
 
@@ -451,8 +474,10 @@ private:
   OpenGLContext & context_;
   const std::size_t gridSize_;
   std::size_t iteration_ = 0u;
+  std::size_t moves_ = 0u;
 
   const std::size_t ActionCount = 5u;
+  const std::size_t MaximumIdleMoves = 100u;
 
   struct Position {
     std::size_t x;
