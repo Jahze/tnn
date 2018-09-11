@@ -152,7 +152,7 @@ struct NeuroneLayer {
       weights_.SubtractThreaded(weightsDelta_);
     }
 
-    const Optimiser optimiser = Optimiser::RMSProp;
+    const Optimiser optimiser = Optimiser::Momentum;
     const static double Momentum = 0.9;
 
     switch (optimiser) {
@@ -169,7 +169,8 @@ struct NeuroneLayer {
       weightsDelta_.Divide(learningRate);
 
       AlignedMatrix squared{size_, weightsPerNeurone_};
-      weightsDelta_.Multiply(weightsDelta_, squared);
+      // TODO: there is a buf here this doesnt square the weights
+      weightsDelta_.MultiplyThreaded(weightsDelta_, squared);
       squared.Multiply(1.0 - Momentum);
 
       momentum_.Multiply(Momentum);
