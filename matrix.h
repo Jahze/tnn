@@ -165,6 +165,15 @@ struct AlignedMatrix {
     return Row(row)[column];
   }
 
+  void SquareElements() {
+    for (std::size_t row = 0u; row < rows_; ++row) {
+      for (std::size_t col = 0u; col < columns_; ++col) {
+        double value = Value(row, col);
+        Value(row, col) =  value * value;
+      }
+    }
+  }
+
   void Divide(double scalar) {
     for (std::size_t row = 0u; row < rows_; ++row) {
       for (std::size_t col = 0u; col < columns_; ++col)

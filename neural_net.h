@@ -141,36 +141,42 @@ struct NeuroneLayer {
   void CommitDeltas(double learningRate) {
     enum class Optimiser {
       None,
-      Momentum, // lr ~ 0.0001
+      Momentum, // lr ~ 0.001
       RMSProp,  // lr ~ 0.001
     };
 
-    if (size_ < 16u) {
-      weights_.Subtract(weightsDelta_);
-    }
-    else {
-      weights_.SubtractThreaded(weightsDelta_);
-    }
-
-    const Optimiser optimiser = Optimiser::Momentum;
+    const Optimiser optimiser = Optimiser::RMSProp;
     const static double Momentum = 0.9;
 
     switch (optimiser) {
-    case Optimiser::Momentum:
-      momentum_.Multiply(Momentum);
-      if (size_ < 16u) weights_.Subtract(momentum_);
-      else weights_.SubtractThreaded(momentum_);
-      momentum_.Add(weightsDelta_);
+    case Optimiser::None:
+      if (size_ < 16u) weights_.Subtract(weightsDelta_);
+      else weights_.SubtractThreaded(weightsDelta_);
       break;
+
+    case Optimiser::Momentum:
+    {
+      // TODO : weightsDelta_ contains learning rate and shouldn't
+      weightsDelta_.Divide(learningRate);
+      weightsDelta_.Multiply(1.0 - Momentum);
+      momentum_.Multiply(Momentum);
+      momentum_.Add(weightsDelta_);
+
+      AlignedMatrix momentum = momentum_.Clone();
+      momentum.Multiply(learningRate);
+
+      if (size_ < 16u) weights_.Subtract(momentum);
+      else weights_.SubtractThreaded(momentum);
+      break;
+    }
 
     case Optimiser::RMSProp:
     {
       // TODO : weightsDelta_ contains learning rate and shouldn't
       weightsDelta_.Divide(learningRate);
 
-      AlignedMatrix squared{size_, weightsPerNeurone_};
-      // TODO: there is a buf here this doesnt square the weights
-      weightsDelta_.MultiplyThreaded(weightsDelta_, squared);
+      AlignedMatrix squared = weightsDelta_.Clone();
+      squared.SquareElements();
       squared.Multiply(1.0 - Momentum);
 
       momentum_.Multiply(Momentum);
@@ -180,7 +186,7 @@ struct NeuroneLayer {
 
       for (std::size_t i = 0u; i < size_; ++i) {
         for (std::size_t j = 0u; j < weightsPerNeurone_; ++j)
-          delta[i][j] = (learningRate / std::sqrt(delta[i][j] + 0.1e8)) * weightsDelta_[i][j];
+          delta[i][j] = learningRate * (weightsDelta_[i][j] / (std::sqrt(delta[i][j]) + 1.0e-8));
       }
 
       if (size_ < 16u) weights_.Subtract(delta);
