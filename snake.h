@@ -82,6 +82,10 @@ public:
     //}
   }
 
+  void UpdateLastReward(double reward) {
+    rewards_.back() = reward;
+  }
+
 private:
   std::vector<double> DiscountedRewards() const {
     const std::size_t inputSize = inputs_.size();
@@ -105,6 +109,7 @@ private:
     for (std::size_t i = 0u; i < inputSize; ++i)
       stddev += std::pow(out[i] - mean, 2.);
 
+    //std::cout << stddev << ", " << inputSize << ", " << mean << "\n";
     stddev = std::sqrt(stddev / inputSize);
 
     // This can happen if the whole run generates no rewards
@@ -117,6 +122,26 @@ private:
       out[i] /= stddev;
     }
 
+    /*
+    for (std::size_t i = 0u; i < inputSize; ++i)
+      out[i] -= mean;
+
+    mean = 0.0;
+    for (std::size_t i = 0u; i < inputSize; ++i)
+      mean += out[i];
+    mean /= inputSize;
+
+    double stddev = 0.0;
+
+    for (std::size_t i = 0u; i < inputSize; ++i)
+      stddev += std::pow(out[i] - mean, 2.);
+
+    stddev = std::sqrt(stddev / inputSize);
+
+    for (std::size_t i = 0u; i < inputSize; ++i)
+      out[i] /= stddev;
+    */
+
     return out;
   }
 
@@ -128,10 +153,16 @@ private:
 };
 
 class Snake : public ::SimpleSimulation {
+private:
+  struct Position {
+    std::size_t x;
+    std::size_t y;
+  };
+
 public:
   Snake(std::size_t msPerFrame, OpenGLContext & context, std::size_t gridSize)
       : SimpleSimulation(msPerFrame), context_(context), gridSize_(gridSize),
-        policyGradient_(ActionCount), avgLength_(100u) {
+        policyGradient_(ActionCount), avgLength_(1000u) {
 
     std::random_device r;
     rng_.seed(r());
@@ -162,6 +193,12 @@ public:
         SetMsPerFrame(fast?250u:10u);
         fast = !fast;
         break;
+      case 'S':
+        brain_->SerializeWeights("snake-brain.txt");
+        break;
+      case 'L':
+        brain_->DeserializeWeights("snake-brain.txt");
+        break;
       }
     });
 
@@ -169,6 +206,7 @@ public:
 
     //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 10u));
     brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 100u));
+    //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 300u));
     //brain_->SetLearningRate(0.0001);
     brain_->SetLearningRate(0.001);
     brain_->SetOutputLayerActivationType(ActivationType::Softmax);
@@ -181,8 +219,8 @@ protected:
 
   void UpdateImpl(bool render, std::size_t ms) override {
     if (moves_++ > MaximumIdleMoves) {
-      //Restart();
-      Dead();
+      policyGradient_.UpdateLastReward(-1.0);
+      Restart();
     }
 
     SampleBrain();
@@ -265,21 +303,17 @@ protected:
 
     growSnake_ = HitsApple(next.x, next.y);
 
-    //const double MaxDistance = std::sqrt(std::pow(gridSize_ - 1u, 2.0) + std::pow(gridSize_ - 1u, 2.0));
-
-    //const double xdist = int64_t(next.x) - int64_t(applePosition_.x);
-    //const double ydist = int64_t(next.y) - int64_t(applePosition_.y);
-    //const double dist = std::sqrt(xdist*xdist + ydist*ydist);
-    //const double scaled = 1.0 - dist / MaxDistance;
-    ////std::cout << "distance " << scaled << "\n";
-    //policyGradient_.StoreReward(scaled);
-
     if (growSnake_) {
       PlaceApple();
-      policyGradient_.StoreReward(1.);
+      policyGradient_.StoreReward(1.0);
       moves_ = 0u; // reset idle moves
     }
     else {
+      //double lastDistance = ScaledDistanceToApple(snakePositions_.back());
+      //double nextDistance = ScaledDistanceToApple(next);
+
+      //policyGradient_.StoreReward(lastDistance > nextDistance ? 0.5 : 0.0);
+
       //policyGradient_.StoreReward(0.1);
       policyGradient_.StoreReward(0.0);
       //policyGradient_.StoreReward(-0.01);
@@ -290,19 +324,41 @@ protected:
     lastSnakeDirection_ = snakeDirection_;
   }
 
-  void Dead() {
-    Restart(-1.);
+  double ScaledDistanceToApple(Position p1) {
+    const double MaxDistance = std::sqrt(std::pow(gridSize_ - 1u, 2.0)
+        + std::pow(gridSize_ - 1u, 2.0));
+
+    const double xdist = int64_t(p1.x) - int64_t(applePosition_.x);
+    const double ydist = int64_t(p1.y) - int64_t(applePosition_.y);
+    const double dist = std::sqrt(xdist*xdist + ydist*ydist);
+    return dist / MaxDistance;
   }
 
-  void Restart(double lastReward = 0.0) {
-    policyGradient_.StoreReward(lastReward);
+  void Dead() {
+    policyGradient_.StoreReward(-1.);
+    Restart();
+  }
+
+  void Restart() {
     policyGradient_.Teach(*brain_.get());
     policyGradient_.Reset();
 
     avgLength_.AddDataPoint(snakePositions_.size());
     iteration_++;
-    std::cout << "Iteration " << iteration_
-      << " [length avg = " << avgLength_.Average() << "]\n";
+    if (iteration_ % 1000u == 0u) {
+      std::cout << "Iteration " << iteration_
+        << " [length avg = " << avgLength_.Average() << "]\n";
+      if (maxLength_ == 0.0) {
+        maxLength_ = avgLength_.Average();
+      }
+      else {
+        double avg = avgLength_.Average();
+        if (maxLength_ - avg >= 2.0) {
+          std::cout << "Dropping from max\n";
+        }
+        maxLength_ = std::max(maxLength_, avg);
+      }
+    }
 
     Reset();
   }
@@ -322,6 +378,7 @@ protected:
     PlaceApple();
 
     lastState_ = EncodeState();
+    lastPosition_ = snakePositions_.back();
   }
 
   void PlaceApple() {
@@ -380,26 +437,6 @@ protected:
 
     lastState_ = std::move(state);
     return out;
-
-    // XXX below doesn't run
-    //auto state = EncodeState();
-
-    //const std::size_t StateSize = state.size();
-
-    //std::vector<double> out(StateSize);
-
-    //// TODO: normalize
-    //for (std::size_t i = 0u; i < StateSize; ++i)
-    //  out[i] = state[i] - lastState_[i];
-
-    //// TODO: not sure if i should do this
-    //// the problem is that using a frame difference detect movement
-    //// but not unchanging position of apple
-    //out[applePosition_.x * gridSize_ + applePosition_.y] = 0.5;
-
-    //lastState_ = std::move(state);
-
-    //return out;
   }
 
   void SampleBrain() {
@@ -482,11 +519,6 @@ private:
   const std::size_t ActionCount = 5u;
   const std::size_t MaximumIdleMoves = 100u;
 
-  struct Position {
-    std::size_t x;
-    std::size_t y;
-  };
-
   Position applePosition_;
   std::deque<Position> snakePositions_;
   bool growSnake_ = false;
@@ -499,8 +531,9 @@ private:
   std::unique_ptr<NeuralNet> brain_;
   PolicyGradient policyGradient_;
   std::vector<double> lastState_;
-
+  Position lastPosition_;
   MovingAverage<double> avgLength_;
+  double maxLength_ = 0.0;
 };
 
 }
