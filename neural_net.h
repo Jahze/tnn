@@ -46,6 +46,7 @@ struct NeuroneLayer {
   AlignedMatrix transpose_;
   AlignedMatrix weightsDelta_;
   AlignedMatrix momentum_;
+  AlignedMatrix RMSPropMomentum_;
   AlignedMatrix outputs_;
   AlignedMatrix dLoss_dNet_;
   AlignedMatrix * inputs_;
@@ -61,6 +62,7 @@ struct NeuroneLayer {
     transpose_.Reset(size, weightsPerNeurone_);
     weightsDelta_.Reset(size, weightsPerNeurone_);
     momentum_.Reset(size, weightsPerNeurone_);
+    RMSPropMomentum_.Reset(size, weightsPerNeurone_);
 
     std::random_device rd;
     std::mt19937 generator(rd());
@@ -143,10 +145,13 @@ struct NeuroneLayer {
       None,
       Momentum, // lr ~ 0.001
       RMSProp,  // lr ~ 0.001
+      AdamOptimiser,
     };
 
-    const Optimiser optimiser = Optimiser::RMSProp;
+    const Optimiser optimiser = Optimiser::AdamOptimiser;
     const static double Momentum = 0.9;
+    const static double Beta1 = 0.9;
+    const static double Beta2 = 0.999;
 
     switch (optimiser) {
     case Optimiser::None:
@@ -186,12 +191,42 @@ struct NeuroneLayer {
 
       for (std::size_t i = 0u; i < size_; ++i) {
         for (std::size_t j = 0u; j < weightsPerNeurone_; ++j)
-          delta[i][j] = learningRate * (weightsDelta_[i][j] / (std::sqrt(delta[i][j]) + 1.0e-8));
+          delta[i][j] = learningRate
+            * (weightsDelta_[i][j] / (std::sqrt(delta[i][j]) + 1.0e-8));
       }
 
       if (size_ < 16u) weights_.Subtract(delta);
       else weights_.SubtractThreaded(delta);
 
+      break;
+    }
+
+    case Optimiser::AdamOptimiser:
+    {
+      // TODO : weightsDelta_ contains learning rate and shouldn't
+      weightsDelta_.Divide(learningRate);
+
+      AlignedMatrix squared = weightsDelta_.Clone();
+      squared.SquareElements();
+      squared.Multiply(1.0 - Beta2);
+
+      RMSPropMomentum_.Multiply(Beta2);
+      RMSPropMomentum_.Add(squared);
+
+      weightsDelta_.Multiply(1.0 - Beta1);
+      momentum_.Multiply(Beta1);
+      momentum_.Add(weightsDelta_);
+
+      AlignedMatrix momentum = momentum_.Clone();
+
+      for (std::size_t i = 0u; i < size_; ++i) {
+        for (std::size_t j = 0u; j < weightsPerNeurone_; ++j)
+          momentum[i][j] = learningRate
+            * (momentum[i][j] / (std::sqrt(RMSPropMomentum_[i][j]) + 1.0e-8));
+      }
+
+      if (size_ < 16u) weights_.Subtract(momentum);
+      else weights_.SubtractThreaded(momentum);
       break;
     }
     }

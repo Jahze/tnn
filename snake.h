@@ -92,7 +92,7 @@ private:
 
     std::vector<double> out(inputSize);
 
-    const double Gamma = 0.95;
+    const double Gamma = 0.5;
     double reward = 0.0;
     double mean = 0.0;
 
@@ -347,7 +347,11 @@ protected:
     iteration_++;
     if (iteration_ % 1000u == 0u) {
       std::cout << "Iteration " << iteration_
-        << " [length avg = " << avgLength_.Average() << "]\n";
+        << " [length avg = " << avgLength_.Average() << "] "
+        << iterationTimer_.ElapsedMicroseconds() << "\n";
+
+      iterationTimer_.Reset();
+
       if (maxLength_ == 0.0) {
         maxLength_ = avgLength_.Average();
       }
@@ -534,6 +538,8 @@ private:
   Position lastPosition_;
   MovingAverage<double> avgLength_;
   double maxLength_ = 0.0;
+
+  Timer iterationTimer_;
 };
 
 }
