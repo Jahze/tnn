@@ -40,7 +40,6 @@ public:
       for (std::size_t j = 0u; j < actionCount_; ++j) {
         double ideal = j == actions_[i] ? 1.0 : 0.0;
         loss[i][j] = (outputs[i][j] - ideal) * rewards[i];
-        //loss[i][j] = rewards_[i];
       }
     }
 
@@ -92,7 +91,7 @@ private:
 
     std::vector<double> out(inputSize);
 
-    const double Gamma = 0.5;
+    const double Gamma = 0.95;
     double reward = 0.0;
     double mean = 0.0;
 
@@ -109,7 +108,6 @@ private:
     for (std::size_t i = 0u; i < inputSize; ++i)
       stddev += std::pow(out[i] - mean, 2.);
 
-    //std::cout << stddev << ", " << inputSize << ", " << mean << "\n";
     stddev = std::sqrt(stddev / inputSize);
 
     // This can happen if the whole run generates no rewards
@@ -121,26 +119,6 @@ private:
       out[i] -= mean;
       out[i] /= stddev;
     }
-
-    /*
-    for (std::size_t i = 0u; i < inputSize; ++i)
-      out[i] -= mean;
-
-    mean = 0.0;
-    for (std::size_t i = 0u; i < inputSize; ++i)
-      mean += out[i];
-    mean /= inputSize;
-
-    double stddev = 0.0;
-
-    for (std::size_t i = 0u; i < inputSize; ++i)
-      stddev += std::pow(out[i] - mean, 2.);
-
-    stddev = std::sqrt(stddev / inputSize);
-
-    for (std::size_t i = 0u; i < inputSize; ++i)
-      out[i] /= stddev;
-    */
 
     return out;
   }
@@ -207,7 +185,6 @@ public:
     //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 10u));
     brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 100u));
     //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 300u));
-    //brain_->SetLearningRate(0.0001);
     brain_->SetLearningRate(0.001);
     brain_->SetOutputLayerActivationType(ActivationType::Softmax);
     brain_->SetHiddenLayerActivationType(ActivationType::ReLu);
@@ -314,9 +291,7 @@ protected:
 
       //policyGradient_.StoreReward(lastDistance > nextDistance ? 0.5 : 0.0);
 
-      //policyGradient_.StoreReward(0.1);
       policyGradient_.StoreReward(0.0);
-      //policyGradient_.StoreReward(-0.01);
     }
 
     snakePositions_.push_back(next);
