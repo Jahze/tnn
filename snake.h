@@ -185,6 +185,7 @@ public:
     //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 10u));
     brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 100u));
     //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 300u));
+    brain_->SetOptimiser(Optimiser::Momentum);
     brain_->SetLearningRate(0.001);
     brain_->SetOutputLayerActivationType(ActivationType::Softmax);
     brain_->SetHiddenLayerActivationType(ActivationType::ReLu);

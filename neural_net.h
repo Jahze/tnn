@@ -21,6 +21,13 @@ enum class ActivationType {
   Softmax,
 };
 
+enum class Optimiser {
+  Default,
+  Momentum, // lr ~ 0.001
+  RMSProp,  // lr ~ 0.001
+  AdamOptimiser,
+};
+
 void ActivationFunction(ActivationType type, double * outputs, std::size_t size);
 double ActivationFunctionDerivative(ActivationType type, double value);
 
@@ -140,21 +147,13 @@ struct NeuroneLayer {
     inputs_ = &inputs;
   }
 
-  void CommitDeltas(double learningRate) {
-    enum class Optimiser {
-      None,
-      Momentum, // lr ~ 0.001
-      RMSProp,  // lr ~ 0.001
-      AdamOptimiser,
-    };
-
-    const Optimiser optimiser = Optimiser::AdamOptimiser;
+  void CommitDeltas(Optimiser optimiser, double learningRate) {
     const static double Momentum = 0.9;
     const static double Beta1 = 0.9;
     const static double Beta2 = 0.999;
 
     switch (optimiser) {
-    case Optimiser::None:
+    case Optimiser::Default:
       if (size_ < 16u) weights_.Subtract(weightsDelta_);
       else weights_.SubtractThreaded(weightsDelta_);
       break;
@@ -338,6 +337,10 @@ public:
     learningRate_ = rate;
   }
 
+  void SetOptimiser(Optimiser optimiser) {
+    optimiser_ = optimiser;
+  }
+
   void SetHiddenLayerActivationType(ActivationType type) {
     CHECK(type != ActivationType::Softmax);
 
@@ -509,7 +512,7 @@ private:
       tasks.Run();
 
       if (batchSize > 1u)
-        layer.CommitDeltas(learningRate_);
+        layer.CommitDeltas(optimiser_, learningRate_);
     }
   }
 
@@ -674,6 +677,7 @@ private:
   AlignedMatrix inputsStorage_;
 
   double learningRate_ = 0.5;
+  Optimiser optimiser_ = Optimiser::Default;
 };
 
 class HalvingLearningRate {
