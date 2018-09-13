@@ -89,6 +89,12 @@
     <ClInclude Include="snake.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="policy_gradient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="catch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="tnn.natvis" />

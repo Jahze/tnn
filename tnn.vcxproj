@@ -140,6 +140,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="backprop.h" />
+    <ClInclude Include="catch.h" />
     <ClInclude Include="colours.h" />
     <ClInclude Include="finders.h" />
     <ClInclude Include="chasers.h" />
@@ -154,6 +155,7 @@
     <ClInclude Include="mnist_classifier.h" />
     <ClInclude Include="moving_average.h" />
     <ClInclude Include="neural_net.h" />
+    <ClInclude Include="policy_gradient.h" />
     <ClInclude Include="simulation.h" />
     <ClInclude Include="snake.h" />
     <ClInclude Include="threadpool.h" />
