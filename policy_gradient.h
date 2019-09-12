@@ -26,6 +26,8 @@ public:
   void Teach(NeuralNet & net) {
     if (inputs_.empty()) return;
 
+    CHECK(inputs_.size() == rewards_.size());
+
     // TODO: split into batches if we have a lot of inputs?
     auto outputs = net.Process(inputs_);
 
