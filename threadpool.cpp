@@ -10,6 +10,8 @@ ThreadPool * GetCpuSizedThreadPool() {
 }
 
 void WorkerThread::Work() {
+  SetFloatingPointExceptionMode();
+
   while (running_) {
     ThreadPool::Job job;
 

@@ -7,6 +7,7 @@
 #include <random>
 #include <string>
 #include "backprop.h"
+#include "catch.h"
 #include "chasers.h"
 #include "colours.h"
 #include "crossentropy.h"
@@ -162,8 +163,13 @@ int main() {
     kMsPerFrame * 2,
     glContext,
     128);
-#elif 1
+#elif 0
   snake::Snake population(
+    10u,
+    glContext,
+    8);
+#elif 1
+  catcher::Catch population(
     10u,
     glContext,
     8);
@@ -182,6 +188,8 @@ int main() {
   ::MSG msg;
 
   population.Start();
+
+  SetFloatingPointExceptionMode();
 
   while (true) {
     while (::PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE) == TRUE) {

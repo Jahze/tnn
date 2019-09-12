@@ -3,6 +3,7 @@
 #define NOMINMAX
 
 #include <Windows.h>
+#include <cfloat>
 #include <iostream>
 #include <string>
 
@@ -20,3 +21,11 @@
   } while (false)
 
 #define TWO_PI 6.28318530718
+
+inline void SetFloatingPointExceptionMode() {
+#if FP_EXCEPTIONS
+  _controlfp(_EM_INEXACT, _MCW_EM & (~_EM_UNDERFLOW));
+#endif
+
+  return;
+}
