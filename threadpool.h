@@ -63,11 +63,11 @@ public:
   bool GetJob(Job & job) {
     std::unique_lock<std::mutex> lock(lock_);
 
-    if (jobs_.empty())
-      jobAdded_.wait(lock);
-
-    if (jobs_.empty())
-      return false;
+    if (jobs_.empty()) {
+      jobAdded_.wait(lock, [this] {
+        return !jobs_.empty();
+      });
+    }
 
     job = std::move(jobs_.front());
     jobs_.pop();
