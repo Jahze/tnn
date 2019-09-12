@@ -58,6 +58,10 @@ struct NeuroneLayer {
   AlignedMatrix dLoss_dNet_;
   AlignedMatrix * inputs_;
   ActivationType activationType_ = ActivationType::Sigmoid;
+  constexpr static double AdamBeta1 = 0.9;
+  constexpr static double AdamBeta2 = 0.999;
+  double adamBeta1_t_ = AdamBeta1;
+  double adamBeta2_t_ = AdamBeta2;
 
   NeuroneLayer(std::size_t size, std::size_t neuroneSize)
     : size_(size), neuroneSize_(neuroneSize)
@@ -149,8 +153,6 @@ struct NeuroneLayer {
 
   void CommitDeltas(Optimiser optimiser, double learningRate) {
     const static double Momentum = 0.9;
-    const static double Beta1 = 0.9;
-    const static double Beta2 = 0.999;
 
     switch (optimiser) {
     case Optimiser::Default:
@@ -207,22 +209,33 @@ struct NeuroneLayer {
 
       AlignedMatrix squared = weightsDelta_.Clone();
       squared.SquareElements();
-      squared.Multiply(1.0 - Beta2);
+      squared.Multiply(1.0 - AdamBeta2);
 
-      RMSPropMomentum_.Multiply(Beta2);
+      RMSPropMomentum_.Multiply(AdamBeta2);
       RMSPropMomentum_.Add(squared);
 
-      weightsDelta_.Multiply(1.0 - Beta1);
-      momentum_.Multiply(Beta1);
+      // TODO: there is an optimisation mentioned in the Adam paper that
+      // precludes the need to calculate m^ and v^. This could be used to
+      // remove the Clone() calls.
+
+      AlignedMatrix RMSPropMomentum = RMSPropMomentum_.Clone();
+      RMSPropMomentum.Divide(1.0 - adamBeta2_t_);
+
+      weightsDelta_.Multiply(1.0 - AdamBeta1);
+      momentum_.Multiply(AdamBeta1);
       momentum_.Add(weightsDelta_);
 
       AlignedMatrix momentum = momentum_.Clone();
+      momentum.Divide(1.0 - adamBeta1_t_);
 
       for (std::size_t i = 0u; i < size_; ++i) {
         for (std::size_t j = 0u; j < weightsPerNeurone_; ++j)
           momentum[i][j] = learningRate
-            * (momentum[i][j] / (std::sqrt(RMSPropMomentum_[i][j]) + 1.0e-8));
+            * (momentum[i][j] / (std::sqrt(RMSPropMomentum[i][j]) + 1.0e-8));
       }
+
+      adamBeta1_t_ *= AdamBeta1;
+      adamBeta2_t_ *= AdamBeta2;
 
       if (size_ < 16u) weights_.Subtract(momentum);
       else weights_.SubtractThreaded(momentum);
