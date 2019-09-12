@@ -81,11 +81,16 @@ public:
   }
 
   void Update(bool render) {
+    if (!render) {
+      UpdateImpl(render, msPerFrame_ + 1);
+
+      lastTick_ = std::chrono::high_resolution_clock::now();
+      return;
+    }
+
     auto now = std::chrono::high_resolution_clock::now();
     auto elapsed = now - lastTick_;
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed);
-
-    if (!render) ms = std::chrono::milliseconds(msPerFrame_ + 1);
 
     if (ms.count() > msPerFrame_) {
       UpdateImpl(render, ms.count());
