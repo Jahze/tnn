@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?> 
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+  <Type Name="Aligned32ByteRAIIStorage&lt;double&gt;">
+    <DisplayString>{{ size={size_} }}</DisplayString>
+    <Expand>
+      <ArrayItems>
+        <Size>size_</Size>
+        <ValuePointer>storage_</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <Type Name="AlignedMatrix">
+    <DisplayString>{{ size={rows_*columns_} rows={rows_} columns={columns_} }}</DisplayString>
+    <Expand>
+      <ArrayItems>
+        <Direction>Forward</Direction>
+        <Rank>2</Rank>
+        <Size>$i == 0 ? rows_ : alignedColumns_</Size>
+        <ValuePointer>values_.storage_</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+</AutoVisualizer>
