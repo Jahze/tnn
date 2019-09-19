@@ -73,7 +73,7 @@ public:
 private:
   void CreatePixelFormat() {
     PIXELFORMATDESCRIPTOR pixelFormat;
-
+    ::ZeroMemory(&pixelFormat, sizeof(PIXELFORMATDESCRIPTOR));
     pixelFormat.nSize = sizeof(PIXELFORMATDESCRIPTOR);
     pixelFormat.nVersion = 1;
     pixelFormat.dwFlags =
@@ -81,9 +81,9 @@ private:
       PFD_SUPPORT_OPENGL |
       PFD_DOUBLEBUFFER;
     pixelFormat.dwLayerMask = PFD_MAIN_PLANE;
-    pixelFormat.iPixelType = PFD_TYPE_COLORINDEX;
-    pixelFormat.cColorBits = 8;
-    pixelFormat.cDepthBits = 16;
+    pixelFormat.iPixelType = PFD_TYPE_RGBA;
+    pixelFormat.cColorBits = 32;
+    pixelFormat.cDepthBits = 32;
     pixelFormat.cAccumBits = 0;
     pixelFormat.cStencilBits = 0;
 
