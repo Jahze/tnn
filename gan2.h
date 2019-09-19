@@ -35,10 +35,12 @@ public:
     brain_.reset(new NeuralNet(dimension * dimension + 10, 1, 1, 300));
     //brain_->SetHiddenLayerActivationType(ActivationType::Tanh);
     brain_->SetHiddenLayerActivationType(ActivationType::LeakyReLu);
-    brain_->SetLearningRate(0.002);
+    //brain_->SetHiddenLayerActivationType(ActivationType::ReLu);
+    brain_->SetLearningRate(0.001);
     generator_.reset(new NeuralNet(NoiseInputs + 10, dimension * dimension, 1, 100));
-    generator_->SetHiddenLayerActivationType(ActivationType::LeakyReLu);
     //generator_->SetHiddenLayerActivationType(ActivationType::Tanh);
+    generator_->SetHiddenLayerActivationType(ActivationType::LeakyReLu);
+    //generator_->SetHiddenLayerActivationType(ActivationType::ReLu);
     generator_->SetLearningRate(0.001);
 
     classifyImages_ = mnist::ImageFile::Read(classifyFilename);
@@ -56,18 +58,18 @@ public:
     context.AddResizeListener([this](){
       recreateScene_ = true; });
 
-    brain_->DeserializeWeights("discriminator-weights.txt");
-    generator_->DeserializeWeights("generator-weights.txt");
+    //brain_->DeserializeWeights("discriminator-weights.txt");
+    //generator_->DeserializeWeights("generator-weights.txt");
 
-    context.AddDestroyListener([this](){
-      brain_->SerializeWeights("discriminator-weights.txt");
-      generator_->SerializeWeights("generator-weights.txt");
-    });
+    //context.AddDestroyListener([this](){
+    //  brain_->SerializeWeights("discriminator-weights.txt");
+    //  generator_->SerializeWeights("generator-weights.txt");
+    //});
 
 #if GRAPH_LOSS
     Graph::Limits limits;
     limits.xmin = 0.0; limits.xmax = 1000.0;
-    limits.ymin = 0.0; limits.ymax = 10.0;
+    limits.ymin = 0.0; limits.ymax = 50.0;
 
     graphWindow_ = std::make_unique<GraphWindow>(limits);
 
@@ -97,7 +99,7 @@ protected:
 
     std::vector<std::vector<double>> idealOutputs(BatchSize);
     for (auto && element : idealOutputs)
-      element.reserve(1u);
+      element.resize(1u);
 
     const auto & loss = TrainDiscriminator(idealOutputs);
     TrainGenerator(idealOutputs);
@@ -150,12 +152,19 @@ protected:
 
     for (std::size_t i = 0u; i < BatchSize; ++i) {
       const std::size_t trainingCursor = trainingCursor_ + i;
-
       const auto & label = labels[trainingCursor];
 
-      auto generatorInputs = GeneratorInputs(label);
+      inputs[i] = std::move(GeneratorInputs(label));
+    }
 
-      inputs[i] = std::move(generator_->Process(generatorInputs));
+    AlignedMatrix outputs = std::move(generator_->Process(inputs));
+
+    for (std::size_t i = 0u; i < BatchSize; ++i) {
+      inputs[i].assign(outputs[i], outputs[i] + outputs.columns_);
+
+      const std::size_t trainingCursor = trainingCursor_ + i;
+      const auto & label = labels[trainingCursor];
+
       inputs[i].insert(inputs[i].end(), label.begin(), label.end());
 
       idealOutputs[i][0] = 1.0;
@@ -164,14 +173,11 @@ protected:
     generator_->BackPropagationCrossEntropy(*brain_.get(),
       inputs, idealOutputs);
 
-    trainingCursor_ += 100u;
+    trainingCursor_ += BatchSize;
   }
 
   std::pair<double,double> TrainDiscriminator(
       std::vector<std::vector<double>> & idealOutputs) {
-
-    double realLoss = 0.0;
-    double fakeLoss = 0.0;
 
     const auto & normalisedImages = trainingImages_.NormalisedData();
     const auto & labels = trainingOutput_.Data();
@@ -202,14 +208,16 @@ protected:
 
     brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
 
+    std::vector<std::vector<double>> generatorInputs(BatchSize);
+
     for (std::size_t i = 0u; i < BatchSize; ++i) {
       const std::size_t trainingCursor = trainingCursor_ + i;
 
       const auto & label = labels[trainingCursor];
 
-      std::vector<double> generatorInputs = GeneratorInputs(label);
+      generatorInputs[i] = std::move(GeneratorInputs(label));
 
-      inputs[i] = std::move(generator_->Process(generatorInputs));
+      inputs[i] = std::move(generator_->Process(generatorInputs[i]));
       inputs[i].insert(inputs[i].end(), label.begin(), label.end());
 
       // Want a value of 0.0 (because it's not from the training set)
@@ -219,14 +227,22 @@ protected:
     brain_->BackPropagationCrossEntropy(inputs, idealOutputs);
 
     trainingCursor_ += BatchSize;
-#if GRAPH_LOSS
-      const auto & realOutputs = brain_->Process(inputs);
-      const auto & fakeOutputs = brain_->Process(generatedOutputs);
-      const double realOutputLoss = 1.0 - realOutputs[0];
-      const double fakeOutputLoss = 0.0 - fakeOutputs[0];
 
-      realLoss += std::abs(realOutputLoss);
-      fakeLoss += std::abs(fakeOutputLoss);
+    double realLoss = 0.0;
+    double fakeLoss = 0.0;
+
+#if GRAPH_LOSS
+    const auto & realOutputs = brain_->Process(inputs);
+    const auto & fakeOutputs = brain_->Process(generatorInputs);
+    //const double realOutputLoss = 1.0 - realOutputs[0];
+    //const double fakeOutputLoss = 0.0 - fakeOutputs[0];
+
+    double realOutputLoss = 0.0;
+    double fakeOutputLoss = 0.0;
+    for (std::size_t i = 0u; i < BatchSize; ++i) {
+      realLoss += realOutputs[0][i] * realOutputs[0][i];
+      fakeLoss += realOutputs[0][i] * fakeOutputs[0][i];
+    }
 #endif
 
     return {realLoss, fakeLoss};
