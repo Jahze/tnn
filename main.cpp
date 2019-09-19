@@ -163,12 +163,12 @@ int main() {
     kMsPerFrame * 2,
     glContext,
     128);
-#elif 0
+#elif 1
   snake::Snake population(
     10u,
     glContext,
     8);
-#elif 1
+#elif 0
   catcher::Catch population(
     10u,
     glContext,
