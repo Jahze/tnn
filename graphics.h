@@ -11,6 +11,29 @@
 
 class Scene;
 
+class ScopedHDC {
+public:
+  ScopedHDC(::HWND hwnd) : hwnd_(hwnd) {
+    hdc_ = ::GetDC(hwnd);
+  }
+
+  ~ScopedHDC() {
+    ::ReleaseDC(hwnd_, hdc_);
+  }
+
+  ScopedHDC(ScopedHDC &&) = delete;
+  ScopedHDC(const ScopedHDC &) = delete;
+
+  ScopedHDC operator=(ScopedHDC &&) = delete;
+  ScopedHDC operator=(const ScopedHDC &) = delete;
+
+  operator ::HDC() const { return hdc_; }
+
+private:
+  ::HWND hwnd_;
+  ::HDC hdc_;
+};
+
 class OpenGLContext {
 public:
   void Create(HWND hwnd) {

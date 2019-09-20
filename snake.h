@@ -8,6 +8,23 @@
 
 namespace snake {
 
+//class PolicyGradientVisualizer {
+//public:
+//  PolicyGradientVisualizer(
+//      size_t gridSize,
+//      const PolicyGradient & policyGradient,
+//      const NeuralNet & brain)
+//    : gridSize_{gridSize}, policyGradient_{policyGradient},
+//      brain_{brain}, nextBrain_{brain} {
+//  }
+//
+//private:
+//  PolicyGradient policyGradient_;
+//  NeuralNet brain_;
+//  NeuralNet nextBrain_;
+//  size_t gridSize_;
+//};
+
 class Snake : public ::SimpleSimulation {
 private:
   struct Position {
@@ -18,7 +35,8 @@ private:
 public:
   Snake(std::size_t msPerFrame, OpenGLContext & context, std::size_t gridSize)
       : SimpleSimulation(msPerFrame), context_(context), gridSize_(gridSize),
-        policyGradient_(ActionCount), avgLength_(1000u) {
+        policyGradient_(ActionCount), avgLength_(1000u),
+        lastPolicyGradient_(ActionCount) {
 
     std::random_device r;
     rng_.seed(r());
@@ -55,13 +73,32 @@ public:
       case 'L':
         brain_->DeserializeWeights("snake-brain.txt");
         break;
+      case 'G':
+        shouldShowPolicyGradients_ = !shouldShowPolicyGradients_;
+        break;
+      case VK_LEFT:
+        if (showingPolicyGradients_) {
+          if (policyGradientFrame_ > 0ull)
+            --policyGradientFrame_;
+        }
+        break;
+      case VK_RIGHT:
+        if (showingPolicyGradients_) {
+          ++policyGradientFrame_;
+
+          if (policyGradientFrame_ >= lastPolicyGradient_.FrameCount()) {
+            showingPolicyGradients_ = false;
+            lastOutputs_.clear();
+          }
+        }
+        break;
       }
     });
 
     // Pass last two frames so it can detect movement
 
     //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 10u));
-    brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 100u));
+    brain_.reset(new NeuralNet(gridSize_ * gridSize_, ActionCount, 1u, 100u));
     //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 300u));
     //brain_->SetOptimiser(Optimiser::Momentum);
     brain_->SetOptimiser(Optimiser::RMSProp);
@@ -75,10 +112,138 @@ protected:
   void StartImpl() override {
   }
 
+  void PrintText(float x, float y, const std::string & text) {
+    glColor3d(1.0, 1.0, 1.0);
+    glRasterPos2f(x, y);
+    glListBase(0);
+    glCallLists(text.size(), GL_UNSIGNED_BYTE, text.c_str());
+  }
+
+  float StartPrintingText() {
+    ScopedHDC hdc{context_.Handle()};
+
+    ::wglUseFontBitmaps(hdc, 0, 255, 0);
+
+    ::RECT rect;
+    ::GetClientRect(context_.Handle(), &rect);
+
+    ::TEXTMETRIC metrics;
+    ::GetTextMetrics(hdc, &metrics);
+
+    float height =
+      static_cast<float>(metrics.tmHeight) /
+      static_cast<float>(rect.right);
+
+    height *= 2.0f;
+
+    return height;
+  }
+
+  void PrintStats() {
+    float height = StartPrintingText();
+
+    double y = 1.0f - height;
+    PrintText(-1.0f, y, "Length: " + std::to_string(snakePositions_.size()));
+
+    y -= height;
+    PrintText(-1.0f, y, "Idle moves: " + std::to_string(moves_));
+  }
+
+  std::string ActionName(size_t action) {
+    switch (action) {
+    case 0: return "Up";
+    case 1: return "Down";
+    case 2: return "Left";
+    case 3: return "Right";
+    default: return "ERROR!";
+    }
+  }
+
+  void ShowPolicyGradients() {
+    auto inputs = lastPolicyGradient_.Inputs(policyGradientFrame_);
+
+    const double step = 2.0 / static_cast<double>(gridSize_);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    glBegin(GL_QUADS);
+
+    for (size_t x = 0ull; x < gridSize_; ++x) {
+      for (size_t y = 0ull; y < gridSize_; ++y) {
+        const double value = inputs[x * gridSize_ + y];
+        const double r = value < 0.0 ? -value: 0.0;
+        const double g = value > 0.0 ? value: 0.0;
+
+        glColor3d(r, g, 0.0);
+        glVertex2d(-1.0 + x * step,   -1.0 + y * step);
+        glVertex2d(-1.0 + x+1 * step, -1.0 + y * step);
+        glVertex2d(-1.0 + x+1 * step, -1.0 + y+1 * step);
+        glVertex2d(-1.0 + x * step,   -1.0 + y+1 * step);
+      }
+    }
+
+    glEnd();
+
+    float height = StartPrintingText();
+    float y = 1.0f - height;
+
+    PrintText(-1.0f, y, "Frame: "
+      + std::to_string(policyGradientFrame_ + 1ull)
+      + "/" + std::to_string(lastPolicyGradient_.FrameCount()));
+
+    y -= height * 2.0f;
+    PrintText(-1.0f, y, "Up probability: " + std::to_string(lastOutputs_[policyGradientFrame_][0]));
+
+    y -= height;
+    PrintText(-1.0f, y, "Down probability: " + std::to_string(lastOutputs_[policyGradientFrame_][1]));
+
+    y -= height;
+    PrintText(-1.0f, y, "Left probability: " + std::to_string(lastOutputs_[policyGradientFrame_][2]));
+
+    y -= height;
+    PrintText(-1.0f, y, "Right probability: " + std::to_string(lastOutputs_[policyGradientFrame_][3]));
+
+    y -= height;
+    PrintText(-1.0f, y, "Sample: " + std::to_string(lastOutputs_[policyGradientFrame_][4]));
+
+    auto action = lastPolicyGradient_.SelectedAction(policyGradientFrame_);
+
+    y -= height * 2.0f;
+    PrintText(-1.0f, y, "Selected action: " + ActionName(action));
+
+    auto reward = lastPolicyGradient_.Reward(policyGradientFrame_);
+
+    y -= height;
+    PrintText(-1.0f, y, "Reward: " + std::to_string(reward));
+
+    auto outputs = brain_->Process(inputs);
+
+    y -= height * 2.0f;
+    PrintText(-1.0f, y, "Next Up probability: " + std::to_string(outputs[0]));
+
+    y -= height;
+    PrintText(-1.0f, y, "Next Down probability: " + std::to_string(outputs[1]));
+
+    y -= height;
+    PrintText(-1.0f, y, "Next Left probability: " + std::to_string(outputs[2]));
+
+    y -= height;
+    PrintText(-1.0f, y, "Next Right probability: " + std::to_string(outputs[3]));
+
+    context_.SwapBuffers();
+  }
+
   void UpdateImpl(bool render, std::size_t ms) override {
+    if (showingPolicyGradients_) {
+      ShowPolicyGradients();
+      return;
+    }
+
     if (moves_++ > MaximumIdleMoves) {
       policyGradient_.UpdateLastReward(-1.0);
       Restart();
+
+      if (showingPolicyGradients_)
+        return;
     }
 
     SampleBrain();
@@ -109,6 +274,8 @@ protected:
       glVertex2d(-1.0 + apple.x * step,      -1.0 + (apple.y+1) * step);
 
     glEnd();
+
+    PrintStats();
 
     context_.SwapBuffers();
   }
@@ -196,6 +363,15 @@ protected:
   }
 
   void Restart() {
+    if (shouldShowPolicyGradients_) {
+      lastPolicyGradient_ = policyGradient_;
+      showingPolicyGradients_ = true;
+      policyGradientFrame_ = 0ull;
+    }
+    else {
+      lastOutputs_.clear();
+    }
+
     policyGradient_.Teach(*brain_.get());
     policyGradient_.Reset();
 
@@ -207,17 +383,6 @@ protected:
         << iterationTimer_.ElapsedMicroseconds() << "\n";
 
       iterationTimer_.Reset();
-
-      if (maxLength_ == 0.0) {
-        maxLength_ = avgLength_.Average();
-      }
-      else {
-        double avg = avgLength_.Average();
-        if (maxLength_ - avg >= 2.0) {
-          std::cout << "Dropping from max\n";
-        }
-        maxLength_ = std::max(maxLength_, avg);
-      }
     }
 
     Reset();
@@ -237,7 +402,6 @@ protected:
 
     PlaceApple();
 
-    lastState_ = EncodeState();
     lastPosition_ = snakePositions_.back();
   }
 
@@ -277,30 +441,23 @@ protected:
   std::vector<double> EncodeState() {
     std::vector<double> out(gridSize_ * gridSize_, 0.0);
 
-    for (auto && position : snakePositions_) {
-      out[position.x * gridSize_ + position.y] = 1.0;
-    }
+    auto iter = std::rbegin(snakePositions_);
+    const auto end = std::crend(snakePositions_);
 
-    out[applePosition_.x * gridSize_ + applePosition_.y] = 0.5;
+    out[iter->x * gridSize_ + iter->y] = 1.0;
 
-    return out;
-  }
+    ++iter;
 
-  std::vector<double> GenerateBrainInputs() {
-    auto state = EncodeState();
+    for ( ; iter != end; ++iter)
+      out[iter->x * gridSize_ + iter->y] = 0.5;
 
-    const std::size_t StateSize = state.size();
+    out[applePosition_.x * gridSize_ + applePosition_.y] = -1.0;
 
-    std::vector<double> out(StateSize * 2);
-    std::copy(lastState_.begin(), lastState_.end(), out.begin());
-    std::copy(state.begin(), state.end(), out.begin() + StateSize);
-
-    lastState_ = std::move(state);
     return out;
   }
 
   void SampleBrain() {
-    auto inputs = GenerateBrainInputs();
+    auto inputs = EncodeState();
 
     auto outputs = brain_->Process(inputs);
 
@@ -319,13 +476,17 @@ protected:
     }
 
     switch (selectedAction) {
-    case 1: ChangeDirection(Direction::Up);     break;
-    case 2: ChangeDirection(Direction::Down);   break;
-    case 3: ChangeDirection(Direction::Left);   break;
-    case 4: ChangeDirection(Direction::Right);  break;
+    case 0: ChangeDirection(Direction::Up);     break;
+    case 1: ChangeDirection(Direction::Down);   break;
+    case 2: ChangeDirection(Direction::Left);   break;
+    case 3: ChangeDirection(Direction::Right);  break;
     }
 
     policyGradient_.StoreIO(std::move(inputs), selectedAction);
+
+    outputs.push_back(sample);
+
+    lastOutputs_.push_back(std::move(outputs));
 
 #if 0
     std::cout << std::setprecision(2);
@@ -376,8 +537,8 @@ private:
   std::size_t iteration_ = 0u;
   std::size_t moves_ = 0u;
 
-  const std::size_t ActionCount = 5u;
-  const std::size_t MaximumIdleMoves = 100u;
+  const std::size_t ActionCount = 4u;
+  const std::size_t MaximumIdleMoves = 50u;
 
   Position applePosition_;
   std::deque<Position> snakePositions_;
@@ -390,12 +551,16 @@ private:
 
   std::unique_ptr<NeuralNet> brain_;
   PolicyGradient policyGradient_;
-  std::vector<double> lastState_;
   Position lastPosition_;
-  MovingAverage<double> avgLength_;
-  double maxLength_ = 0.0;
 
+  MovingAverage<double> avgLength_;
   Timer iterationTimer_;
+
+  PolicyGradient lastPolicyGradient_;
+  bool shouldShowPolicyGradients_ = true;
+  bool showingPolicyGradients_ = false;
+  size_t policyGradientFrame_ = 0ull;
+  std::vector<std::vector<double>> lastOutputs_;
 };
 
 }

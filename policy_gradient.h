@@ -86,6 +86,26 @@ public:
     rewards_.back() = reward;
   }
 
+  size_t FrameCount() {
+    return inputs_.size();
+  }
+
+  std::vector<double> Inputs(size_t frame) {
+    CHECK(frame < FrameCount());
+    return inputs_[frame];
+  }
+
+  size_t SelectedAction(size_t frame) {
+    CHECK(frame < FrameCount());
+    return actions_[frame];
+  }
+
+  double Reward(size_t frame) {
+    CHECK(frame < FrameCount());
+    auto rewards = DiscountedRewards();
+    return rewards[frame];
+  }
+
 private:
   std::vector<double> DiscountedRewards() const {
     const std::size_t inputSize = inputs_.size();
@@ -125,7 +145,7 @@ private:
   }
 
 private:
-  const std::size_t actionCount_;
+  std::size_t actionCount_;
   std::vector<std::vector<double>> inputs_;
   std::vector<std::size_t> actions_;
   std::vector<double> rewards_;

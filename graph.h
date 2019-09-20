@@ -10,23 +10,6 @@
 #include "graphics.h"
 #include "macros.h"
 
-class ScopedHDC {
-public:
-  ScopedHDC(::HWND hwnd) : hwnd_(hwnd) {
-    hdc_ = ::GetDC(hwnd);
-  }
-
-  ~ScopedHDC() {
-    ::ReleaseDC(hwnd_, hdc_);
-  }
-
-  operator ::HDC() const { return hdc_; }
-
-private:
-  ::HWND hwnd_;
-  ::HDC hdc_;
-};
-
 class Pen {
 public:
   Pen(::HWND hwnd, int r, int g, int b)
