@@ -45,41 +45,6 @@ public:
     }
 
     net.BackPropagationCrossEntropy(loss);
-
-    //std::cout << "Last action\n";
-    //std::cout << "{";
-    //std::cout << std::setprecision(2);
-
-    //for (std::size_t i = 0u; i < actionCount_; ++i)
-    //  std::cout << outputs[inputSize - 1u][i] << ", ";
-
-    //std::cout << "}\n";
-    //std::cout << "Selected action = " << actions_[inputSize - 1u] << "\n";
-    //std::cout << "Reward = " << rewards[inputSize - 1u] << "\n";
-
-    //auto nextOutputs = net.Process(inputs_);
-
-    //std::cout << "Next action\n";
-    //std::cout << "{";
-    //std::cout << std::setprecision(2);
-
-    //for (std::size_t i = 0u; i < actionCount_; ++i)
-    //  std::cout << nextOutputs[inputSize - 1u][i] << ", ";
-
-    //std::cout << "}\n---\n";
-
-    //if (rewards[inputSize - 1u] < 0.0 &&
-    //    nextOutputs[inputSize - 1u][actions_[inputSize - 1u]] >
-    //    outputs[inputSize - 1u][actions_[inputSize - 1u]]) {
-    //  std::cout << "HOW?\n";
-    //}
-
-    //if (std::isnan(nextOutputs[inputSize - 1u][0]) || std::isnan(outputs[inputSize - 1u][0])) {
-    //  std::cout << "NAN!\n";
-    //  auto rewards2 = DiscountedRewards();
-    //  if (std::isnan(rewards2[0]))
-    //    std::cout << "NAN!\n";
-    //}
   }
 
   void UpdateLastReward(double reward) {

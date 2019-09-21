@@ -8,23 +8,6 @@
 
 namespace snake {
 
-//class PolicyGradientVisualizer {
-//public:
-//  PolicyGradientVisualizer(
-//      size_t gridSize,
-//      const PolicyGradient & policyGradient,
-//      const NeuralNet & brain)
-//    : gridSize_{gridSize}, policyGradient_{policyGradient},
-//      brain_{brain}, nextBrain_{brain} {
-//  }
-//
-//private:
-//  PolicyGradient policyGradient_;
-//  NeuralNet brain_;
-//  NeuralNet nextBrain_;
-//  size_t gridSize_;
-//};
-
 class Snake : public ::SimpleSimulation {
 private:
   struct Position {
