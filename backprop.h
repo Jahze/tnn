@@ -93,7 +93,16 @@ public:
     : ::GenerationalSimulation(msPerFrame, msPerGenerationRender)
     , context_(context), rng_(random_()), trainingData_(trainingDataSize)
     , brain_(BrainInputs, BrainOutputs, HiddenLayers, NeuronesPerLayer)
-    , average_(10) {}
+    , average_(10) {
+
+    // INVESTIGATE: ReLu activation (even with lr of 0.001) stops this
+    // network from converging
+
+    //brain_.SetHiddenLayerActivationType(ActivationType::ReLu);
+
+    brain_.SetOptimiser(Optimiser::AdamOptimiser);
+    brain_.SetLearningRate(0.01);
+  }
 
 protected:
   void StartImpl() {
@@ -150,6 +159,9 @@ protected:
 
     double totalLoss = 0.0;
 
+    std::vector<std::vector<double>> batchInputs;
+    std::vector<std::vector<double>> batchIdealOutputs;
+
     for (auto && object : objects_) {
       const auto & inputs = object->GetInputs();
       const auto & outputs = object->GetIdealOutputs();
@@ -161,12 +173,18 @@ protected:
 
       totalLoss += std::sqrt(rloss*rloss + gloss*gloss + bloss*bloss);
 
-      auto lossFunction = [&outputs](double value, std::size_t i) {
-        return -(outputs[i] - value);
-      };
+      batchInputs.push_back(inputs);
+      batchIdealOutputs.push_back(outputs);
 
-      // BATCH: brain_.BackPropagation(inputs, lossFunction);
+      if (batchInputs.size() == BatchSize) {
+        brain_.BackPropagationThreaded(batchInputs, batchIdealOutputs);
+        batchInputs.clear();
+        batchIdealOutputs.clear();
+      }
     }
+
+    if (!batchInputs.empty())
+      brain_.BackPropagationThreaded(batchInputs, batchIdealOutputs);
 
     for (auto && object : objects_)
       object->SetWeights(brain_.GetWeights());
@@ -187,6 +205,8 @@ private:
   }
 
 private:
+  constexpr static size_t BatchSize = 8;
+
   OpenGLContext & context_;
   std::unique_ptr<Scene> scene_;
   std::vector<Colour> trainingData_;
