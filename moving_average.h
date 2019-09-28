@@ -7,6 +7,10 @@
 template<typename T>
 class MovingAverage {
 public:
+  static_assert(
+      std::is_arithmetic_v<T>,
+      "MovingAverage<T> requires arithmetic type");
+
   MovingAverage(std::size_t samples) : samples_(samples) {}
 
   void AddDataPoint(T v) {
@@ -25,6 +29,22 @@ public:
   T Average() const {
     return std::accumulate(data_.begin(), data_.end(), T())
       / static_cast<T>(samples_);
+  }
+
+  T Max() const {
+    T max;
+
+    if constexpr (std::is_floating_point_v<T>)
+      max = -std::numeric_limits<T>::max();
+    else
+      max = std::numeric_limits<T>::min();
+
+    for (auto datum : data_) {
+      if (datum > max)
+        max = datum;
+    }
+
+    return max;
   }
 
 private:

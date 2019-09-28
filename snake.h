@@ -78,17 +78,12 @@ public:
       }
     });
 
-    // Pass last two frames so it can detect movement
-
-    //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 10u));
     brain_.reset(new NeuralNet(gridSize_ * gridSize_, ActionCount, 1u, 100u));
-    //brain_.reset(new NeuralNet(gridSize_ * gridSize_ * 2, ActionCount, 1u, 300u));
-    //brain_->SetOptimiser(Optimiser::Momentum);
     brain_->SetOptimiser(Optimiser::RMSProp);
     //brain_->SetOptimiser(Optimiser::AdamOptimiser);
     brain_->SetLearningRate(0.001);
     brain_->SetOutputLayerActivationType(ActivationType::Softmax);
-    brain_->SetHiddenLayerActivationType(ActivationType::ReLu);
+    brain_->SetHiddenLayerActivationType(ActivationType::Sigmoid);
   }
 
 protected:
@@ -362,7 +357,8 @@ protected:
     iteration_++;
     if (iteration_ % 1000u == 0u) {
       std::cout << "Iteration " << iteration_
-        << " [length avg = " << avgLength_.Average() << "] "
+        << " [length avg = " << avgLength_.Average() << " "
+        << "max = " << avgLength_.Max() << "] "
         << iterationTimer_.ElapsedMicroseconds() << "\n";
 
       iterationTimer_.Reset();
@@ -470,20 +466,6 @@ protected:
     outputs.push_back(sample);
 
     lastOutputs_.push_back(std::move(outputs));
-
-#if 0
-    std::cout << std::setprecision(2);
-    std::cout << "Actions:\n";
-    std::cout << outputs[0] << " = do nothing\n";
-    std::cout << outputs[1] << " = up\n";
-    std::cout << outputs[2] << " = down\n";
-    std::cout << outputs[3] << " = left\n";
-    std::cout << outputs[4] << " = right\n";
-    std::cout << "Total = " <<
-      outputs[0] + outputs[1] + outputs[2] + outputs[3] + outputs[4] << std::endl;
-
-    std::cout << "Selected action = " << selectedAction << std::endl;
-#endif
   }
 
   enum class Direction {
