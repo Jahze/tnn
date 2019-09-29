@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <numeric>
+#include <unordered_map>
 #include <vector>
 
 template<typename T>
@@ -45,6 +46,74 @@ public:
     }
 
     return max;
+  }
+
+  void PrintHistogram() {
+    if constexpr (std::is_floating_point_v<T>)
+      PrintHistogramImpl<int64_t>();
+    else
+      PrintHistogramImpl<T>();
+  }
+
+private:
+  template<typename BucketType>
+  void PrintHistogramImpl() {
+    static_assert(std::is_integral_v<BucketType>, "BucketType not integral");
+
+    std::unordered_map<BucketType,size_t> buckets;
+
+    for (auto datum : data_) {
+      // If buckets[bucket] doesn't exist operator[] will value-initialise it.
+
+      if constexpr (std::is_floating_point_v<T>) {
+        BucketType bucket = static_cast<BucketType>(std::floor(datum + 0.5));
+        buckets[bucket] += 1;
+      }
+      else {
+        buckets[datum] += 1;
+      }
+    }
+
+    const auto minmaxBucket = std::minmax_element(
+        std::begin(buckets),
+        std::end(buckets),
+        [](const auto & lhs, const auto & rhs) {
+          return lhs.first < rhs.first;
+        });
+
+    const BucketType minBucket = minmaxBucket.first->first;
+    const BucketType maxBucket = minmaxBucket.second->first;
+
+    const size_t bucketTextLength = std::max(
+        std::to_string(minBucket).length(),
+        std::to_string(maxBucket).length());
+
+    const size_t countTextLength = std::to_string(samples_).length();
+
+    constexpr static size_t HistogramBarMaximumLength = 50ull;
+
+    for (BucketType i = minBucket; i <= maxBucket; ++i) {
+      const std::string bucket = std::to_string(i);
+      const std::string count = std::to_string(buckets[i]);
+
+      const double percent =
+          static_cast<double>(buckets[i]) /
+          static_cast<double>(samples_);
+
+      const size_t pips = std::floor(percent * HistogramBarMaximumLength + 0.5);
+
+      std::cout
+          << ' '
+          << std::string(bucketTextLength - bucket.length(), ' ')
+          << bucket
+          << " ("
+          << std::string(countTextLength - count.length(), ' ')
+          << count
+          << ") | "
+          << (buckets[i] > 0ull ? '\xDB' : ' ')
+          << std::string(pips, '\xDB')
+          << "\n";
+    }
   }
 
 private:

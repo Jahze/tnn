@@ -362,6 +362,8 @@ protected:
         << iterationTimer_.ElapsedMicroseconds() << "\n";
 
       iterationTimer_.Reset();
+
+      avgLength_.PrintHistogram();
     }
 
     Reset();
